@@ -47,7 +47,8 @@ class EncryptedPrefsFormat @Inject constructor(
         val meta = JSONObject()
 
         val encStatus = prefs.metadata[PrefsMetadataKey.ENCRYPTION]?.status ?: PrefsStatus.OK
-        var encrypted = encStatus == PrefsStatus.OK && masterPassword != null
+//        var encrypted = encStatus == PrefsStatus.OK && masterPassword != null
+        var encrypted = false
 
         try {
             for ((key, value) in prefs.values.toSortedMap()) {
