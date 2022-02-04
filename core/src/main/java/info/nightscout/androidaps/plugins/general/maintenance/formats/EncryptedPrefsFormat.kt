@@ -133,8 +133,8 @@ class EncryptedPrefsFormat @Inject constructor(
                         issues.add(rh.gs(R.string.prefdecrypt_issue_modified))
                     }
                 } else {
-                    secure = PrefsStatus.ERROR
-                    issues.add(rh.gs(R.string.prefdecrypt_issue_missing_file_hash))
+                    // secure = PrefsStatus.ERROR
+                    // issues.add(rh.gs(R.string.prefdecrypt_issue_missing_file_hash))
                 }
 
                 if (encrypted) {
