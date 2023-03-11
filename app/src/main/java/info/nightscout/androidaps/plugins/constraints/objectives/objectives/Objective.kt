@@ -145,7 +145,7 @@ abstract class Objective(injector: HasAndroidInjector, spName: String, @StringRe
 
         override fun isCompleted(): Boolean = answered
 
-        fun isEnabledAnswer(): Boolean = disabledTo < dateUtil.now()
+        fun isEnabledAnswer(): Boolean = true
 
         fun option(option: Option): ExamTask {
             options.add(option)
