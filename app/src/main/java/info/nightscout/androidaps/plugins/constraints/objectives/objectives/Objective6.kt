@@ -15,7 +15,7 @@ class Objective6(injector: HasAndroidInjector) : Objective(injector, "maxiob", R
     @Inject lateinit var safetyPlugin: SafetyPlugin
 
     init {
-        tasks.add(MinimumDurationTask(this, T.days(1).msecs()))
+//        tasks.add(MinimumDurationTask(this, T.days(1).msecs()))
         tasks.add(
             object : Task(this, R.string.closedmodeenabled) {
                 override fun isCompleted(): Boolean = sp.getString(R.string.key_aps_mode, "open") == "closed"
