@@ -1,0 +1,43 @@
+name: Eversense port diagnostic
+
+on:
+  pull_request:
+    branches:
+      - automation/eversense-port
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Diagnose squash merge
+        shell: bash
+        run: |
+          set -uo pipefail
+          git config user.name "mbush91"
+          git config user.email "3998995+mbush91@users.noreply.github.com"
+          git remote add eversense https://github.com/mbush91/AndroidAPS-Eversense.git
+          git fetch eversense master
+          git checkout -B feature/eversense-integration origin/dev
+
+          set +e
+          git merge --squash --no-commit eversense/master
+          merge_rc=$?
+          set -e
+
+          echo "MERGE_RETURN_CODE=$merge_rc"
+          echo "=== UNMERGED FILES ==="
+          git diff --name-only --diff-filter=U
+          echo "=== STATUS ==="
+          git status --short
+
+          # Diagnostic only: never mutate a persistent branch in this first pass.
+          exit 0
