@@ -1,4 +1,4 @@
-name: Eversense deep review validation
+name: Eversense integration validation
 
 on:
   pull_request:
@@ -9,13 +9,14 @@ permissions:
   contents: read
 
 jobs:
-  validate-review-fixes:
+  focused-validation:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - name: Check out staged review branch
+      - name: Check out merged integration branch
         uses: actions/checkout@v4
         with:
-          ref: tmp/eversense-deep-review-fixes
+          ref: feature/eversense-integration
           fetch-depth: 0
           show-progress: false
 
@@ -29,8 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --quiet origin feature/eversense-integration
-          git diff --check origin/feature/eversense-integration...HEAD
+          git fetch --quiet origin dev
+          git diff --check origin/dev...HEAD
           ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
           ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
           ! grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
@@ -43,19 +44,71 @@ jobs:
           ./gradlew --no-daemon --stacktrace \
             :plugins:eversense:testFullDebugUnitTest \
             :plugins:eversense:lintFullDebug \
+            :plugins:eversense:assembleFullDebug \
             :plugins:source:compileFullDebugKotlin \
             :core:data:test \
             :core:keys:compileFullDebugKotlin \
             :database:impl:compileFullDebugKotlin \
             :database:persistence:compileFullDebugKotlin \
             :app:compileFullDebugKotlin \
-            2>&1 | tee /tmp/eversense-review-tests.log
+            2>&1 | tee /tmp/eversense-focused-validation.log
 
-      - name: Upload validation log
+      - name: Upload focused validation log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eversense-deep-review-validation
-          path: /tmp/eversense-review-tests.log
+          name: eversense-focused-validation
+          path: /tmp/eversense-focused-validation.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  broad-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out merged integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/eversense-integration
+          fetch-depth: 0
+          show-progress: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build complete debug application
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleFullDebug \
+            2>&1 | tee /tmp/eversense-app-build.log
+
+      - name: Run all full-debug unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace testFullDebugUnitTest \
+            2>&1 | tee /tmp/eversense-all-unit-tests.log
+
+      - name: Run all full-debug lint checks
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace lintFullDebug \
+            2>&1 | tee /tmp/eversense-all-lint.log
+
+      - name: Upload broad validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eversense-broad-validation
+          path: |
+            /tmp/eversense-app-build.log
+            /tmp/eversense-all-unit-tests.log
+            /tmp/eversense-all-lint.log
           if-no-files-found: warn
           retention-days: 14
