@@ -1,7 +1,7 @@
 name: Eversense deep review fixes
 
 on:
-  pull_request_target:
+  push:
     branches:
       - automation/eversense-deep-review
 
