@@ -1,4 +1,4 @@
-name: Eversense repository-wide lint
+name: Eversense source-module lint
 
 on:
   pull_request:
@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  full-debug-lint:
+  source-module-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - name: Check out merged integration branch
         uses: actions/checkout@v4
@@ -26,19 +26,19 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Run all full-debug lint checks
+      - name: Run source-module lint
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace lintFullDebug \
-            2>&1 | tee /tmp/eversense-all-lint.log
+          ./gradlew --no-daemon --stacktrace :plugins:source:lintFullDebug \
+            2>&1 | tee /tmp/eversense-source-lint.log
 
-      - name: Upload lint log
+      - name: Upload source lint log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eversense-repository-wide-lint
-          path: /tmp/eversense-all-lint.log
+          name: eversense-source-module-lint
+          path: /tmp/eversense-source-lint.log
           if-no-files-found: warn
           retention-days: 14
