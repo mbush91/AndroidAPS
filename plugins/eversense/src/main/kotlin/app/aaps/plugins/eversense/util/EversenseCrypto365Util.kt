@@ -103,7 +103,7 @@ class EversenseCrypto365Util(val preference: SharedPreferences) {
     }
 
     fun generateEphem(): ByteArray? {
-        val keyPair = generatePrivateKeyPair() ?:run {
+        val keyPair = generatePrivateKeyPair() ?: run {
             EversenseLogger.error(TAG, "Failed to generate keypair...")
             return null
         }
@@ -121,15 +121,20 @@ class EversenseCrypto365Util(val preference: SharedPreferences) {
             val data = publicKey.copyOfRange(27, publicKey.count()) + v2Salt
             return ecdsaSign(privateKey, data)
         } catch (e: Exception) {
-            e.printStackTrace()
             EversenseLogger.error(TAG, "Got exception during generateEphem - exception: $e")
             return null
         }
     }
 
-    fun generateSessionKey(encodedPublicKey: ByteArray) {
-        try {
-            val salt = ephemSalt ?: return
+    fun generateSessionKey(encodedPublicKey: ByteArray): Boolean {
+        sessionKey = null
+        return try {
+            val salt = ephemSalt ?: return false
+            val privateKey = ephemPrivate ?: return false
+            if (encodedPublicKey.size != 64) {
+                EversenseLogger.error(TAG, "Invalid session public key length: ${encodedPublicKey.size}")
+                return false
+            }
 
             val ecPoint = ECPoint(
                 BigInteger(1, encodedPublicKey.copyOfRange(0, 32)),
@@ -144,36 +149,34 @@ class EversenseCrypto365Util(val preference: SharedPreferences) {
                 ECPublicKeySpec(ecPoint, algorithmParameters)
             )
 
-            val sharedSecret =
-                KeyAgreement.getInstance("ECDH").run {
-                    init(ephemPrivate)
-                    doPhase(publicKey, true)
-                    generateSecret()
-                }
+            val sharedSecret = KeyAgreement.getInstance("ECDH").run {
+                init(privateKey)
+                doPhase(publicKey, true)
+                generateSecret()
+            }
 
             val symmetricKey = HKDFBytesGenerator(SHA256Digest()).run {
                 init(HKDFParameters(sharedSecret, null, salt))
-
-                val arr = ByteArray(16)
-                generateBytes(arr, 0, 16)
-                arr
+                ByteArray(16).also { generateBytes(it, 0, it.size) }
             }
 
-            EversenseLogger.info(TAG, "SessionKey = ${symmetricKey.toHexString()}")
             sessionKey = symmetricKey
+            messageSequenceNumber = 1
+            EversenseLogger.debug(TAG, "E365 session key established")
+            true
         } catch (e: Exception) {
-            e.printStackTrace()
-            EversenseLogger.error(TAG, "Failed to generate sessionKey: $e")
+            EversenseLogger.error(TAG, "Failed to generate session key: $e")
+            false
         }
     }
 
     fun encrypt(data: ByteArray): ByteArray {
-        val ephemSalt = ephemSalt ?:run {
+        val ephemSalt = ephemSalt ?: run {
             EversenseLogger.error(TAG, "No salt available...")
             return byteArrayOf()
         }
 
-        val sessionKey = sessionKey ?:run {
+        val sessionKey = sessionKey ?: run {
             EversenseLogger.error(TAG, "No sessionKey available...")
             return byteArrayOf()
         }
@@ -193,12 +196,16 @@ class EversenseCrypto365Util(val preference: SharedPreferences) {
     }
 
     fun decrypt(response: ByteArray): ByteArray {
-        val ephemSalt = ephemSalt ?:run {
+        if (response.size < 2) {
+            EversenseLogger.error(TAG, "Encrypted response is too short: ${response.size}")
+            return byteArrayOf()
+        }
+        val ephemSalt = ephemSalt ?: run {
             EversenseLogger.error(TAG, "No salt available...")
             return byteArrayOf()
         }
 
-        val sessionKey = sessionKey ?:run {
+        val sessionKey = sessionKey ?: run {
             EversenseLogger.error(TAG, "No sessionKey available...")
             return byteArrayOf()
         }
@@ -288,9 +295,8 @@ class EversenseCrypto365Util(val preference: SharedPreferences) {
                     bArr5
                 }
             } catch (e: Exception) {
-                EversenseLogger.error(TAG, "AEAD-CCM encryption/decryption error: $e");
-                e.printStackTrace()
-                return null;
+                EversenseLogger.error(TAG, "AEAD-CCM encryption/decryption error: $e")
+                return null
             }
         }
 
