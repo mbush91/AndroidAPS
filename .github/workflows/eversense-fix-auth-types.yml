@@ -1,0 +1,52 @@
+name: Patch Eversense auth response types
+
+on:
+  push:
+    branches:
+      - automation/eversense-deep-review
+
+permissions:
+  contents: write
+
+jobs:
+  patch-auth-types:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out staged review branch
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/eversense-deep-review-fixes
+          fetch-depth: 0
+          show-progress: false
+
+      - name: Apply explicit HTTP response types
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "mbush91"
+          git config user.email "3998995+mbush91@users.noreply.github.com"
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt")
+          text = path.read_text()
+          old_login = '''                val authSession = networkExecutor.submit {
+                      EversenseHttp365Util.login(preferences)
+                  }.get() ?: throw EversenseWriteException("E365 DMS login failed")'''
+          new_login = '''                val authSession = networkExecutor.submit<EversenseHttp365Util.LoginResponseModel?> {
+                      EversenseHttp365Util.login(preferences)
+                  }.get() ?: throw EversenseWriteException("E365 DMS login failed")'''
+          old_fleet = '''                val fleetResponse = networkExecutor.submit {
+                      EversenseHttp365Util.getFleetSecretV2('''
+          new_fleet = '''                val fleetResponse = networkExecutor.submit<EversenseHttp365Util.FleetSecretV2ResponseModel?> {
+                      EversenseHttp365Util.getFleetSecretV2('''
+          if old_login not in text:
+              raise SystemExit("Expected login submit block was not found")
+          if old_fleet not in text:
+              raise SystemExit("Expected fleet submit block was not found")
+          path.write_text(text.replace(old_login, new_login).replace(old_fleet, new_fleet))
+          PY
+          git diff --check
+          git add plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt
+          git commit -m "fix: type Eversense authentication responses"
+          git push origin HEAD:tmp/eversense-deep-review-fixes
