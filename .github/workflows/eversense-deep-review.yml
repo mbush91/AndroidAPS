@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: tmp/eversense-deep-review-fixes
-          fetch-depth: 1
+          fetch-depth: 0
           show-progress: false
 
       - name: Set up Java
@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --quiet origin dev
           git diff --check origin/dev...HEAD
           ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
           ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
