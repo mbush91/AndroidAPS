@@ -29,8 +29,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --quiet origin dev
-          git diff --check origin/dev...HEAD
+          git fetch --quiet origin feature/eversense-integration
+          git diff --check origin/feature/eversense-integration...HEAD
           ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
           ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
           ! grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
