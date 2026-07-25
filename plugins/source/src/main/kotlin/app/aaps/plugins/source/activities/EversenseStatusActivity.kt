@@ -30,6 +30,8 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -52,7 +54,6 @@ class EversenseStatusActivity : AppCompatActivity(), EversenseWatcher {
         eversense.removeWatcher(this)
     }
 
-    // EversenseWatcher: update button instantly on connection/state change
     override fun onConnectionChanged(connected: Boolean) { mainHandler.post { updateStatus() } }
     override fun onStateChanged(state: EversenseState) { mainHandler.post { updateStatus() } }
     override fun onTransmitterReady() {}
@@ -82,7 +83,6 @@ class EversenseStatusActivity : AppCompatActivity(), EversenseWatcher {
             }
         }
 
-        // Default Sync Days spinner
         val syncDaysOptions = intArrayOf(1, 3, 7, 14, 30)
         val spinner = findViewById<Spinner>(R.id.eversense_sync_days_spinner)
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, syncDaysOptions.map { "$it" })
@@ -109,21 +109,19 @@ class EversenseStatusActivity : AppCompatActivity(), EversenseWatcher {
         findViewById<TextView>(R.id.eversense_status_connected).text =
             "Connected: " + if (eversense.isConnected()) "✅" else "❌"
         findViewById<TextView>(R.id.eversense_status_battery).text =
-            "Battery: " + (state?.let { "${it.batteryPercentage}%" } ?: notConnected)
+            "Battery: ${state.batteryPercentage}%"
         findViewById<TextView>(R.id.eversense_status_insertion).text =
-            "Insertion date: " + (state?.let { dateFormatter.format(Date(it.insertionDate)) } ?: notConnected)
+            "Insertion date: " + if (state.insertionDate > 0) dateFormatter.format(Date(state.insertionDate)) else notConnected
         findViewById<TextView>(R.id.eversense_status_last_sync).text =
-            "Last sync: " + (state?.let { if (it.lastSync > 0) dateFormatter.format(Date(it.lastSync)) else "Never" } ?: notConnected)
+            "Last sync: " + if (state.lastSync > 0) dateFormatter.format(Date(state.lastSync)) else "Never"
         findViewById<TextView>(R.id.eversense_status_signal).text =
-            "Placement signal: " + (state?.let { signalToLabel(it.sensorSignalStrength) } ?: notConnected)
-
+            "Placement signal: ${signalToLabel(state.sensorSignalStrength)}"
         findViewById<TextView>(R.id.eversense_status_phase).text =
-            "Calibration phase: " + (state?.calibrationPhase?.name ?: notConnected)
-
+            "Calibration phase: ${state.calibrationPhase.name}"
         findViewById<TextView>(R.id.eversense_status_last_cal).text =
-            "Last calibration: " + (state?.let { if (it.lastCalibrationDate > 0) dateFormatter.format(Date(it.lastCalibrationDate)) else notConnected } ?: notConnected)
+            "Last calibration: " + if (state.lastCalibrationDate > 0) dateFormatter.format(Date(state.lastCalibrationDate)) else notConnected
         findViewById<TextView>(R.id.eversense_status_next_cal).text =
-            "Next calibration: " + (state?.let { if (it.nextCalibrationDate > 0) dateFormatter.format(Date(it.nextCalibrationDate)) else notConnected } ?: notConnected)
+            "Next calibration: " + if (state.nextCalibrationDate > 0) dateFormatter.format(Date(state.nextCalibrationDate)) else notConnected
         findViewById<Button>(R.id.eversense_btn_connect).text =
             if (eversense.isConnected()) "Disconnect" else "Connect"
         findViewById<Button>(R.id.eversense_btn_sync).isEnabled = eversense.isConnected()
@@ -153,21 +151,22 @@ class EversenseStatusActivity : AppCompatActivity(), EversenseWatcher {
     }
 
     private fun showDeviceSelectionDialog() {
-        val foundDevices = mutableListOf<EversenseScanResult>()
-        var isCancelled = false
+        val foundDevices = CopyOnWriteArrayList<EversenseScanResult>()
+        val isCancelled = AtomicBoolean(false)
         var dialog: AlertDialog? = null
 
         val scanCallback = object : EversenseScanCallback {
             override fun onResult(item: EversenseScanResult) {
-                if (!isCancelled && item.name.matches(Regex("T\\d+.*")) && foundDevices.none { it.name == item.name })
+                if (!isCancelled.get() && foundDevices.none { it.name == item.name }) {
                     foundDevices.add(item)
+                }
             }
         }
 
         eversense.startScan(scanCallback)
 
         mainHandler.postDelayed({
-            if (isCancelled) return@postDelayed
+            if (isCancelled.get()) return@postDelayed
             eversense.stopScan()
             dialog?.dismiss()
             if (foundDevices.isEmpty()) {
@@ -192,7 +191,7 @@ class EversenseStatusActivity : AppCompatActivity(), EversenseWatcher {
             .setTitle(getString(R.string.eversense_scan_title))
             .setMessage(getString(R.string.eversense_scan_in_progress))
             .setNegativeButton(getString(R.string.eversense_scan_cancel)) { _, _ ->
-                isCancelled = true
+                isCancelled.set(true)
                 eversense.stopScan()
             }
             .setCancelable(false)
