@@ -41,13 +41,30 @@ jobs:
         run: chmod +x gradlew
 
       - name: Test BYOESA source plugin
+        shell: bash
         run: |
+          set -o pipefail
           ./gradlew :plugins:source:testDebugUnitTest \
             --tests app.aaps.plugins.source.EversensePluginTest \
-            --stacktrace
+            --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-source-plugin.log"
 
       - name: Test broadcast receiver routing
+        shell: bash
         run: |
+          set -o pipefail
           ./gradlew :app:testFullDebugUnitTest \
             --tests app.aaps.receivers.DataReceiverTest \
-            --stacktrace
+            --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-receiver-test.log"
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: byoesa-source-ci-diagnostics
+          path: |
+            ${{ runner.temp }}/byoesa-source-plugin.log
+            ${{ runner.temp }}/byoesa-receiver-test.log
+            plugins/source/build/reports/tests/
+            app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7
