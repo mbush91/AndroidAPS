@@ -11,6 +11,7 @@ on:
       - "core/interfaces/src/main/kotlin/app/aaps/core/interfaces/receivers/Intents.kt"
       - "plugins/source/**"
       - ".github/workflows/byoesa-source-ci.yml"
+      - ".github/workflows/build-signed-aaps-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -56,6 +57,14 @@ jobs:
             --tests app.aaps.receivers.DataReceiverTest \
             --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-receiver-test.log"
 
+      - name: Compile unsigned full release
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleFullRelease \
+            --no-daemon \
+            --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-full-release.log"
+
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -64,7 +73,9 @@ jobs:
           path: |
             ${{ runner.temp }}/byoesa-source-plugin.log
             ${{ runner.temp }}/byoesa-receiver-test.log
+            ${{ runner.temp }}/byoesa-full-release.log
             plugins/source/build/reports/tests/
             app/build/reports/tests/
+            app/build/reports/
           if-no-files-found: warn
           retention-days: 7
