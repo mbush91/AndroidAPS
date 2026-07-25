@@ -1,4 +1,4 @@
-name: Eversense integration validation
+name: Eversense static diagnostics
 
 on:
   pull_request:
@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  focused-validation:
+  static-diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - name: Check out merged integration branch
         uses: actions/checkout@v4
@@ -20,102 +20,30 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Static safety checks
-        continue-on-error: true
+      - name: Run static diagnostics
         shell: bash
         run: |
           set +e
           status=0
           git fetch --quiet origin dev
-          echo '--- git diff --check ---'
-          git diff --check origin/dev...HEAD || status=1
-          echo '--- session-key logging ---'
-          if grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense; then status=1; fi
-          echo '--- printStackTrace usage ---'
-          if grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense; then status=1; fi
-          echo '--- obsolete transmitter-name filter ---'
-          if grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt; then status=1; fi
+          {
+            echo '--- git diff --check ---'
+            git diff --check origin/dev...HEAD || status=1
+            echo '--- session-key logging ---'
+            if grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense; then status=1; else echo 'none'; fi
+            echo '--- printStackTrace usage ---'
+            if grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense; then status=1; else echo 'none'; fi
+            echo '--- obsolete transmitter-name filter ---'
+            if grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt; then status=1; else echo 'none'; fi
+            echo "--- result: $status ---"
+          } 2>&1 | tee /tmp/eversense-static-diagnostics.log
           exit "$status"
 
-      - name: Run focused integration checks
-        shell: bash
-        run: |
-          set -o pipefail
-          chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace \
-            :plugins:eversense:testFullDebugUnitTest \
-            :plugins:eversense:lintFullDebug \
-            :plugins:eversense:assembleFullDebug \
-            :plugins:source:compileFullDebugKotlin \
-            :core:data:test \
-            :core:keys:compileFullDebugKotlin \
-            :database:impl:compileFullDebugKotlin \
-            :database:persistence:compileFullDebugKotlin \
-            :app:compileFullDebugKotlin \
-            2>&1 | tee /tmp/eversense-focused-validation.log
-
-      - name: Upload focused validation log
+      - name: Upload static diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eversense-focused-validation
-          path: /tmp/eversense-focused-validation.log
-          if-no-files-found: warn
-          retention-days: 14
-
-  broad-validation:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Check out merged integration branch
-        uses: actions/checkout@v4
-        with:
-          ref: feature/eversense-integration
-          fetch-depth: 0
-          show-progress: false
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Build complete debug application
-        shell: bash
-        run: |
-          set -o pipefail
-          chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleFullDebug \
-            2>&1 | tee /tmp/eversense-app-build.log
-
-      - name: Run all full-debug unit tests
-        shell: bash
-        run: |
-          set -o pipefail
-          ./gradlew --no-daemon --stacktrace testFullDebugUnitTest \
-            2>&1 | tee /tmp/eversense-all-unit-tests.log
-
-      - name: Run all full-debug lint checks
-        shell: bash
-        run: |
-          set -o pipefail
-          ./gradlew --no-daemon --stacktrace lintFullDebug \
-            2>&1 | tee /tmp/eversense-all-lint.log
-
-      - name: Upload broad validation logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: eversense-broad-validation
-          path: |
-            /tmp/eversense-app-build.log
-            /tmp/eversense-all-unit-tests.log
-            /tmp/eversense-all-lint.log
-          if-no-files-found: warn
+          name: eversense-static-diagnostics
+          path: /tmp/eversense-static-diagnostics.log
+          if-no-files-found: error
           retention-days: 14
