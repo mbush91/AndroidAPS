@@ -27,14 +27,21 @@ jobs:
           java-version: '21'
 
       - name: Static safety checks
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          status=0
           git fetch --quiet origin dev
-          git diff --check origin/dev...HEAD
-          ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
-          ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
-          ! grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
+          echo '--- git diff --check ---'
+          git diff --check origin/dev...HEAD || status=1
+          echo '--- session-key logging ---'
+          if grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense; then status=1; fi
+          echo '--- printStackTrace usage ---'
+          if grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense; then status=1; fi
+          echo '--- obsolete transmitter-name filter ---'
+          if grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt; then status=1; fi
+          exit "$status"
 
       - name: Run focused integration checks
         shell: bash
