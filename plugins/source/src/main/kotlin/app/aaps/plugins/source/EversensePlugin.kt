@@ -121,12 +121,7 @@ class EversensePlugin @Inject constructor(
                         aapsLogger.warn(LTag.BGSOURCE, "Skipping invalid or empty BYOESA broadcast")
                         continue
                     }
-                    persistenceLayer.insertCgmSourceData(
-                        Sources.Eversense,
-                        glucoseValues,
-                        calibrations = emptyList(),
-                        sensorStartTime = null,
-                    )
+                    persistenceLayer.insertCgmSourceData(Sources.Eversense, glucoseValues, emptyList(), null)
                 } catch (e: CancellationException) {
                     dataInbox.requeue(EversenseInbox, bundles.subList(index, bundles.size))
                     throw e
