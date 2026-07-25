@@ -30,7 +30,6 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.plugin.PluginDescription
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.source.BgSource
-import app.aaps.core.keys.IntKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.plugins.eversense.EversenseCGMPlugin
 import app.aaps.plugins.eversense.callbacks.EversenseScanCallback
@@ -86,7 +85,7 @@ class EversensePlugin @Inject constructor(
         .pluginName(R.string.source_eversense)
         .preferencesVisibleInSimpleMode(false)
         .description(R.string.description_source_eversense),
-    ownPreferences = emptyList(),
+    ownPreferences = listOf(EversenseStringKey::class.java),
     aapsLogger, rh, preferences, config
 ), BgSource, EversenseWatcher {
 
@@ -126,6 +125,8 @@ class EversensePlugin @Inject constructor(
         super.onStart()
         ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         eversense.addWatcher(this)
+        // Credentials must be synchronized before BLE authentication can begin.
+        checkCredentialsNotification()
         if (hasBluetoothPermissions()) {
             aapsLogger.debug(LTag.BGSOURCE, "onStart — permissions granted, attempting auto-reconnect")
             ioScope.launch {
@@ -135,16 +136,15 @@ class EversensePlugin @Inject constructor(
             aapsLogger.warn(LTag.BGSOURCE, "Bluetooth permissions not granted — requesting permissions")
             requestBluetoothPermissions()
         }
-        // Always sync credentials on startup — eversense.is365() is false until first connect
-        // so we must set username/password unconditionally for new phone first-boot
-        checkCredentialsNotification()
     }
 
     override suspend fun onStop() {
-        super.onStop()
+        eversense.stopScan()
+        eversense.disconnect()
+        eversense.removeWatcher(this)
         ioScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
-        eversense.removeWatcher(this)
+        super.onStop()
     }
 
     private fun requestBluetoothPermissions() {
@@ -292,26 +292,6 @@ class EversensePlugin @Inject constructor(
         // Update sensor battery level for Overview status lights
         sensorBatteryLevel = if (state.batteryPercentage >= 0) state.batteryPercentage else -1
 
-        // Keep SENSOR_CHANGE therapy event in sync with transmitter insertion date.
-        // Disabled for E3: the forced overwrite every BT cycle injected raw transmitter
-        // uptime (subject to deep-sleep pauses), causing the home screen timer to drift.
-        // E365 is unaffected and retains the original sync behavior.
-        if (state.insertionDate > 0 && eversense.is365()) {
-            ioScope.launch {
-                persistenceLayer.insertCgmSourceData(Sources.Eversense, emptyList(), emptyList(), state.insertionDate)
-                aapsLogger.debug(LTag.BGSOURCE, "Updated SENSOR_CHANGE event to insertionDate: ${state.insertionDate}")
-            }
-        }
-
-        // Sync SAGE color thresholds to match Eversense sensor lifetime and notification days
-        if (state.insertionDate > 0) {
-            val lifetimeDays = if (eversense.is365()) 365 else 180
-            val warnHours  = (lifetimeDays - 30) * 24   // orange when 30 days remaining
-            val urgentHours = (lifetimeDays - 10) * 24  // red when 10 days remaining
-            preferences.put(IntKey.OverviewSageWarning, warnHours)
-            preferences.put(IntKey.OverviewSageCritical, urgentHours)
-        }
-
         // Check for persistent no-signal — indicates transmitter not placed over sensor
         if (state.sensorSignalStrength == 0) {
             consecutiveNoSignalReadings++
@@ -368,6 +348,8 @@ class EversensePlugin @Inject constructor(
                 rh.gs(R.string.eversense_battery_low, state.batteryPercentage),
                 level = NotificationLevel.NORMAL
             )
+        } else if (state.batteryPercentage > 10 && isBatteryLowDismissed()) {
+            securePrefs.edit(commit = true) { remove("eversense_battery_low_dismissed") }
         }
 
         // Calibration due notification — fires once per calibration day
@@ -447,7 +429,16 @@ class EversensePlugin @Inject constructor(
     }
 
     override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {
-        val glucoseValues = readings.map { reading ->
+        val now = System.currentTimeMillis()
+        val validReadings = validReadings.filter {
+            it.datetime > 0L && it.datetime <= now + 5 * 60 * 1000L && it.glucoseInMgDl > 0
+        }
+        if (validReadings.size != readings.size) {
+            aapsLogger.warn(LTag.BGSOURCE, "Dropped ${readings.size - validReadings.size} invalid Eversense reading(s)")
+        }
+        if (validReadings.isEmpty()) return
+
+        val glucoseValues = validReadings.map { reading ->
             GV(
                 timestamp = reading.datetime,
                 value = reading.glucoseInMgDl.toDouble(),
@@ -463,11 +454,13 @@ class EversensePlugin @Inject constructor(
 
         ioScope.launch {
             val state = eversense.getCurrentState()
-            val insertionDate = state.insertionDate.takeIf { it > 0 }
+            val insertionDate = state.insertionDate.takeIf {
+                preferences.get(BooleanKey.BgSourceCreateSensorChange) && it in 1..now
+            }
             val result = persistenceLayer.insertCgmSourceData(
                 Sources.Eversense,
                 glucoseValues,
-                listOf(),
+                emptyList(),
                 insertionDate
             )
             aapsLogger.info(LTag.BGSOURCE, "CGM insert complete — inserted: ${result.inserted}, updated: ${result.updated}")
@@ -507,7 +500,7 @@ class EversensePlugin @Inject constructor(
                     val uploadOk = try {
                         app.aaps.plugins.eversense.util.EversenseHttp365Util.uploadGlucoseReadings(
                             preferences = prefs,
-                            readings = readings,
+                            readings = validReadings,
                             transmitterSerialNumber = state.transmitterName.ifEmpty { state.transmitterSerialNumber },
                             firmwareVersion = state.firmwareVersion
                         )
@@ -516,7 +509,7 @@ class EversensePlugin @Inject constructor(
                         false
                     }
                     val msg365 = if (uploadOk)
-                        "Eversense cloud upload: ✅ ${readings.size} reading(s) sent"
+                        "Eversense cloud upload: ✅ ${validReadings.size} reading(s) sent"
                     else
                         "Eversense cloud upload: ❌ failed — check credentials and internet"
                     aapsLogger.info(LTag.BGSOURCE, msg365)
@@ -528,7 +521,7 @@ class EversensePlugin @Inject constructor(
                         }
                     }
 
-                    val latest = readings.firstOrNull { it.rawResponseHex.isNotEmpty() } ?: readings.firstOrNull()
+                    val latest = validReadings.firstOrNull { it.rawResponseHex.isNotEmpty() } ?: validReadings.firstOrNull()
                     if (latest != null) {
                         val portalOk = app.aaps.plugins.eversense.util.EversenseHttp365Util.putCurrentValues(
                             preferences = prefs,
@@ -541,7 +534,7 @@ class EversensePlugin @Inject constructor(
                         aapsLogger.info(LTag.BGSOURCE, "Eversense portal sync: ${if (portalOk) "✅ ok" else "❌ failed"}")
                     }
 
-                    val uploadableReadings = readings.filter { it.rawResponseHex.isNotEmpty() }
+                    val uploadableReadings = validReadings.filter { it.rawResponseHex.isNotEmpty() }
                     if (uploadableReadings.isNotEmpty()) {
                         val eventsOk = app.aaps.plugins.eversense.util.EversenseHttp365Util.putDeviceEvents(
                             preferences = prefs,
@@ -554,7 +547,7 @@ class EversensePlugin @Inject constructor(
                     }
                 } else {
                     // E3 EU/OUS upload
-                    val latest = readings.firstOrNull()
+                    val latest = validReadings.firstOrNull()
                     if (latest != null) {
                         val portalOk = app.aaps.plugins.eversense.util.EversenseHttpE3Util.putCurrentValues(
                             preferences = prefs,
@@ -568,13 +561,13 @@ class EversensePlugin @Inject constructor(
                     }
                     val eventsOk = app.aaps.plugins.eversense.util.EversenseHttpE3Util.putDeviceEvents(
                         preferences = prefs,
-                        readings = readings,
+                        readings = validReadings,
                         transmitterSerialNumber = state.transmitterSerialNumber,
                         calibrations = state.calibrationHistory.filter { it.datetime == state.lastCalibrationDate },
                         alerts = state.activeAlarms
                     )
                     val msgE3 = if (eventsOk)
-                        "E3 cloud upload: ✅ ${readings.size} reading(s) sent"
+                        "E3 cloud upload: ✅ ${validReadings.size} reading(s) sent"
                     else
                         "E3 cloud upload: ❌ failed — check credentials and internet"
                     aapsLogger.info(LTag.BGSOURCE, msgE3)
