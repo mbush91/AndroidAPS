@@ -1,0 +1,68 @@
+name: Eversense deep review export
+
+on:
+  push:
+    branches:
+      - automation/eversense-deep-review
+
+permissions:
+  contents: read
+
+jobs:
+  export-review-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/eversense-integration
+          fetch-depth: 1
+          show-progress: false
+
+      - name: Collect review sources and diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/eversense-review
+          cp -a plugins/eversense /tmp/eversense-review/
+          mkdir -p /tmp/eversense-review/plugins
+          cp -a plugins/source /tmp/eversense-review/plugins/
+          mkdir -p /tmp/eversense-review/core
+          cp -a core/data core/interfaces core/keys /tmp/eversense-review/core/
+          mkdir -p /tmp/eversense-review/database
+          cp -a database/impl database/persistence /tmp/eversense-review/database/
+          mkdir -p /tmp/eversense-review/implementation
+          cp -a implementation/src/main/kotlin/app/aaps/implementation/maintenance /tmp/eversense-review/implementation/
+          mkdir -p /tmp/eversense-review/app
+          cp -a app/src/main/kotlin/app/aaps/di /tmp/eversense-review/app/
+          mkdir -p /tmp/eversense-review/gradle
+          cp gradle/libs.versions.toml /tmp/eversense-review/gradle/
+          cp settings.gradle build.gradle.kts CONTRIBUTING.md README.md /tmp/eversense-review/
+
+          {
+            echo '=== Eversense Kotlin files ==='
+            find plugins/eversense plugins/source -type f \( -name '*.kt' -o -name '*.kts' \) | sort
+            echo
+            echo '=== Print stack traces ==='
+            grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense plugins/source || true
+            echo
+            echo '=== TODO/FIXME markers ==='
+            grep -RInE --include='*.kt' 'TODO|FIXME' plugins/eversense plugins/source || true
+            echo
+            echo '=== Potential secret logging ==='
+            grep -RInE --include='*.kt' 'SessionKey|access_token|password|privateKey|CLIENT_SECRET|Authorization' plugins/eversense plugins/source || true
+            echo
+            echo '=== Blocking/shared-preference writes ==='
+            grep -RInE --include='*.kt' 'commit = true|runBlocking|\.get\(\)' plugins/eversense plugins/source || true
+            echo
+            echo '=== Hardcoded Gradle dependencies ==='
+            grep -RInE --include='*.kts' '(implementation|api|testImplementation)\("' plugins/eversense plugins/source || true
+          } > /tmp/eversense-review/static-diagnostics.txt
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: eversense-deep-review-sources
+          path: /tmp/eversense-review
+          if-no-files-found: error
+          retention-days: 7
