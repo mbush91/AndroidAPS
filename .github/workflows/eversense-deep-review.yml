@@ -44,7 +44,37 @@ jobs:
               "kotlinx.serialization.json.Json.encodeToString(secureState)",
               "kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secureState)",
           )
+          gatt = gatt.replace(
+              "    fun enableAutoReconnect() {\n        autoReconnectEnabled = true\n    }\n",
+              "    fun enableAutoReconnect() {\n        autoReconnectEnabled = true\n    }\n\n    fun trackGatt(gatt: BluetoothGatt) {\n        bluetoothGatt = gatt\n    }\n",
+          )
           gatt_path.write_text(gatt)
+
+          manager_path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseCGMPlugin.kt")
+          manager = manager_path.read_text()
+          manager = manager.replace(
+              "                device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)\n                true\n",
+              "                gattCallback.trackGatt(device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))\n                true\n",
+          )
+          manager = manager.replace(
+              "                remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)\n                true\n",
+              "                gattCallback.trackGatt(remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))\n                true\n",
+          )
+          manager = manager.replace(
+              "    fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {\n        if (!gattCallback.isConnected()) {\n",
+              "    fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {\n        if (glucoseMgDl !in MIN_CALIBRATION_MGDL..MAX_CALIBRATION_MGDL) {\n            EversenseLogger.error(TAG, \"Calibration value outside supported range: $glucoseMgDl mg/dL\")\n            return false\n        }\n        if (!gattCallback.isConnected()) {\n",
+          )
+          manager = manager.replace(
+              "        return try {\n            val future = gattCallback.submitToExecutor {\n",
+              "        val stateBeforeCalibration = getCurrentState()\n        if (!gattCallback.is365() && stateBeforeCalibration.calibrationReadiness != CalibrationReadiness.READY) {\n            EversenseLogger.warning(TAG, \"E3 calibration rejected because readiness is ${stateBeforeCalibration.calibrationReadiness}\")\n            return false\n        }\n        return try {\n            val future = gattCallback.submitToExecutor {\n",
+              1,
+          )
+          manager = manager.replace("            updatedState.nextCalibrationDate = timestampMs + 24 * 60 * 60 * 1000L\n", "")
+          manager = manager.replace(
+              "        private const val TAG = \"EversenseCGMManager\"\n",
+              "        private const val TAG = \"EversenseCGMManager\"\n        const val MIN_CALIBRATION_MGDL = 40\n        const val MAX_CALIBRATION_MGDL = 400\n",
+          )
+          manager_path.write_text(manager)
 
           status_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt")
           status = status_path.read_text()
@@ -63,6 +93,28 @@ jobs:
           status = status.replace("            if (isCancelled) return@postDelayed\n", "            if (isCancelled.get()) return@postDelayed\n")
           status = status.replace("                isCancelled = true\n", "                isCancelled.set(true)\n")
           status_path.write_text(status)
+
+          calibration_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseCalibrationActivity.kt")
+          calibration = calibration_path.read_text()
+          calibration = calibration.replace(
+              "import app.aaps.core.interfaces.profile.ProfileUtil\n",
+              "import app.aaps.core.data.model.GlucoseUnit\nimport app.aaps.core.interfaces.profile.ProfileUtil\n",
+          )
+          calibration = calibration.replace("unitLabel.text = profileUtil.units.asText", "unitLabel.text = profileUtil.units.displayLabel")
+          calibration = calibration.replace("units: ${profileUtil.units.asText}", "units: ${profileUtil.units.displayLabel}")
+          calibration = calibration.replace("if (profileUtil.units.asText == \"mmol\")", "if (profileUtil.units == GlucoseUnit.MMOL)")
+          calibration = calibration.replace(
+              "            EversenseLogger.info(TAG, \"Calibration submitting — bgValue: $bgValue, bgMgDl: $bgMgDl\")\n\n            submitButton.isEnabled = false\n",
+              "            if (bgMgDl !in EversenseCGMPlugin.MIN_CALIBRATION_MGDL..EversenseCGMPlugin.MAX_CALIBRATION_MGDL) {\n                EversenseLogger.warning(TAG, \"Calibration outside supported range: $bgMgDl mg/dL\")\n                Toast.makeText(this, getString(R.string.eversense_calibration_invalid_value), Toast.LENGTH_SHORT).show()\n                return@setOnClickListener\n            }\n            EversenseLogger.info(TAG, \"Calibration submitting — bgValue: $bgValue, bgMgDl: $bgMgDl\")\n\n            submitButton.isEnabled = false\n",
+          )
+          calibration_path.write_text(calibration)
+
+          placement_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversensePlacementActivity.kt")
+          placement = placement_path.read_text().replace(
+              "        CoroutineScope(Dispatchers.IO).launch { eversense.exitPositioningMode() }\n",
+              "        ioScope.launch { eversense.exitPositioningMode() }\n",
+          )
+          placement_path.write_text(placement)
           PY
           git diff --check
 
