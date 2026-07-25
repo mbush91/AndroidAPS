@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew :plugins:source:testDebugUnitTest \
+          ./gradlew :plugins:source:testFullDebugUnitTest \
             --tests app.aaps.plugins.source.EversensePluginTest \
             --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-source-plugin.log"
 
