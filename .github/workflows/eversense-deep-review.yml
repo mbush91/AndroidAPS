@@ -36,6 +36,16 @@ jobs:
 
           git apply --check /tmp/eversense-review.patch
           git apply /tmp/eversense-review.patch
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt")
+          text = path.read_text()
+          text = text.replace(
+              "kotlinx.serialization.json.Json.encodeToString(secureState)",
+              "kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secureState)",
+          )
+          path.write_text(text)
+          PY
           git diff --check
 
           ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
@@ -76,8 +86,7 @@ jobs:
             core/keys/src/main/res/values/strings.xml \
             gradle/libs.versions.toml \
             plugins/eversense \
-            plugins/source \
-            settings.gradle
+            plugins/source
           git commit -m "fix: harden Eversense integration after deep review"
           git push origin HEAD:feature/eversense-integration
           git show --stat --oneline --summary HEAD | tee /tmp/eversense-review-commit.txt
