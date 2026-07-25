@@ -1,4 +1,4 @@
-﻿package app.aaps.plugins.source.activities
+package app.aaps.plugins.source.activities
 
 import android.Manifest
 import android.os.Build
@@ -13,8 +13,6 @@ class RequestEversensePermissionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // BLUETOOTH_CONNECT and BLUETOOTH_SCAN are runtime permissions on Android 12+ (API 31+).
-        // On older versions BLUETOOTH is sufficient and is a normal (auto-granted) permission.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requestPermissions(
                 arrayOf(
@@ -24,10 +22,7 @@ class RequestEversensePermissionActivity : AppCompatActivity() {
                 requestCode
             )
         } else {
-            requestPermissions(
-                arrayOf(Manifest.permission.BLUETOOTH),
-                requestCode
-            )
+            finish()
         }
     }
 
