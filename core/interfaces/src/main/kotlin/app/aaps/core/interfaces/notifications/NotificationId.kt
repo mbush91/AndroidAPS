@@ -36,21 +36,13 @@ enum class NotificationId(
 
     // Profile
     PROFILE_SET_OK(INFO, PROFILE),
-
-    // Basal profile failed to write to the pump (wrong basal until fixed). Also covers the old
-    // DanaR-only PROFILE_SET_FAILED, which was merged here.
     FAILED_UPDATE_PROFILE(URGENT, PROFILE),
     INVALID_PROFILE_NOT_ACCEPTED(NORMAL, PROFILE),
 
     // Pump — general
     EXTENDED_BOLUS_DISABLED(IMPORTANT, PUMP),
     PUMP_ERROR(URGENT, PUMP),
-    // Equil low-battery alarm. MUST stay on its own id (historically it mis-used FAILED_UPDATE_PROFILE): the
-    // unified profile-set logic may dismiss FAILED_UPDATE_PROFILE on a successful write, which would otherwise
-    // silently clear a live Equil battery alarm.
     EQUIL_LOW_BATTERY(URGENT, PUMP),
-    // A user/remote (non-SMB) bolus failed to deliver — surfaced once, here, from the executor (the entry
-    // dialog is gone by the time the async result arrives). SMB failures stay silent (the loop self-corrects).
     BOLUS_DELIVERY_FAILED(URGENT, PUMP),
     WRONG_SERIAL_NUMBER(NORMAL, PUMP),
     WRONG_BASAL_STEP(NORMAL, PUMP),
@@ -68,9 +60,6 @@ enum class NotificationId(
     BLUETOOTH_NOT_ENABLED(INFO, PUMP),
     PATCH_NOT_ACTIVE(NORMAL, PUMP),
     PUMP_SETTINGS_FAILED(NORMAL, PUMP),
-    // Pump clock / time-zone update failed (Medtrum, Omnipod Eros). MUST stay on its own id (Eros historically
-    // mis-used FAILED_UPDATE_PROFILE): the unified profile-set logic dismisses FAILED_UPDATE_PROFILE on a successful
-    // write, which would otherwise silently clear a live time-update-failed card (and vice-versa).
     PUMP_TIMEZONE_UPDATE_FAILED(NORMAL, PUMP),
     BLUETOOTH_NOT_SUPPORTED(IMPORTANT, PUMP),
     PUMP_WARNING(NORMAL, PUMP),
@@ -111,7 +100,6 @@ enum class NotificationId(
 
     // Pump — Dana
     DANA_PUMP_ALARM(URGENT, PUMP),
-    // "Bolus block" enabled in pump settings - blocks all bolus delivery (wrong configuration for AAPS)
     DANA_BOLUS_BLOCK(URGENT, PUMP),
 
     // Pump — Dana emulator
@@ -169,8 +157,7 @@ enum class NotificationId(
     SETTINGS_EXPORT_RESULT(INFO, SYSTEM),
     SNACKBAR_FALLBACK(NORMAL, SYSTEM, allowMultiple = true),
 
-    // Automation — general notification action (NOT the "Alarm" action, which uses the system
-    // alarm clock via TimerUtil.scheduleReminder, not this notification path).
+    // Automation
     AUTOMATION_MESSAGE(IMPORTANT, AUTOMATION, allowMultiple = true),
 
     // Scenes
@@ -181,13 +168,13 @@ enum class NotificationId(
 
     // New notification ids must be appended: the Android system id is the enum ordinal.
     // Inserting entries above would renumber every existing notification.
+    EVERSENSE_RELEASE(NORMAL, CGM),
     EVERSENSE_PLACEMENT(NORMAL, CGM),
     EVERSENSE_CREDENTIALS(NORMAL, CGM),
     EVERSENSE_FIRMWARE(INFO, CGM),
     EVERSENSE_ALARM(NORMAL, CGM, allowMultiple = true);
 
     companion object {
-
         fun fromOrdinal(ordinal: Int): NotificationId? = entries.getOrNull(ordinal)
     }
 }
