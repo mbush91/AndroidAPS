@@ -430,7 +430,7 @@ class EversensePlugin @Inject constructor(
 
     override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {
         val now = System.currentTimeMillis()
-        val validReadings = validReadings.filter {
+        val validReadings = readings.filter {
             it.datetime > 0L && it.datetime <= now + 5 * 60 * 1000L && it.glucoseInMgDl > 0
         }
         if (validReadings.size != readings.size) {
