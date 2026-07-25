@@ -38,18 +38,37 @@ jobs:
           git apply /tmp/eversense-review.patch
           python3 <<'PY'
           from pathlib import Path
-          path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt")
-          text = path.read_text()
-          text = text.replace(
+
+          gatt_path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt")
+          gatt = gatt_path.read_text().replace(
               "kotlinx.serialization.json.Json.encodeToString(secureState)",
               "kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secureState)",
           )
-          path.write_text(text)
+          gatt_path.write_text(gatt)
+
+          status_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt")
+          status = status_path.read_text()
+          status = status.replace(
+              "import java.util.Locale\n",
+              "import java.util.Locale\nimport java.util.concurrent.CopyOnWriteArrayList\nimport java.util.concurrent.atomic.AtomicBoolean\n",
+          )
+          status = status.replace(
+              "        val foundDevices = mutableListOf<EversenseScanResult>()\n        var isCancelled = false\n",
+              "        val foundDevices = CopyOnWriteArrayList<EversenseScanResult>()\n        val isCancelled = AtomicBoolean(false)\n",
+          )
+          status = status.replace(
+              "                if (!isCancelled && item.name.matches(Regex(\"T\\\\d+.*\")) && foundDevices.none { it.name == item.name })\n",
+              "                if (!isCancelled.get() && foundDevices.none { it.name == item.name })\n",
+          )
+          status = status.replace("            if (isCancelled) return@postDelayed\n", "            if (isCancelled.get()) return@postDelayed\n")
+          status = status.replace("                isCancelled = true\n", "                isCancelled.set(true)\n")
+          status_path.write_text(status)
           PY
           git diff --check
 
           ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
           ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
+          ! grep -RIn --include='*.kt' 'matches(Regex("T\\\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
           git diff --stat | tee /tmp/eversense-review-stat.txt
 
       - name: Set up Java
