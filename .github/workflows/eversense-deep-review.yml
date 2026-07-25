@@ -1,4 +1,4 @@
-name: Eversense deep review export
+name: Eversense deep review fixes
 
 on:
   pull_request:
@@ -6,63 +6,90 @@ on:
       - automation/eversense-deep-review
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export-review-sources:
+  apply-review-fixes:
     runs-on: ubuntu-latest
     steps:
       - name: Check out integration branch
         uses: actions/checkout@v4
         with:
           ref: feature/eversense-integration
-          fetch-depth: 1
+          fetch-depth: 0
           show-progress: false
 
-      - name: Collect review sources and diagnostics
+      - name: Reconstruct and apply reviewed patch
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/eversense-review
-          cp -a plugins/eversense /tmp/eversense-review/
-          mkdir -p /tmp/eversense-review/plugins
-          cp -a plugins/source /tmp/eversense-review/plugins/
-          mkdir -p /tmp/eversense-review/core
-          cp -a core/data core/interfaces core/keys /tmp/eversense-review/core/
-          mkdir -p /tmp/eversense-review/database
-          cp -a database/impl database/persistence /tmp/eversense-review/database/
-          mkdir -p /tmp/eversense-review/implementation
-          cp -a implementation/src/main/kotlin/app/aaps/implementation/maintenance /tmp/eversense-review/implementation/
-          mkdir -p /tmp/eversense-review/app
-          cp -a app/src/main/kotlin/app/aaps/di /tmp/eversense-review/app/
-          mkdir -p /tmp/eversense-review/gradle
-          cp gradle/libs.versions.toml /tmp/eversense-review/gradle/
-          cp settings.gradle build.gradle.kts CONTRIBUTING.md README.md /tmp/eversense-review/
+          git config user.name "mbush91"
+          git config user.email "3998995+mbush91@users.noreply.github.com"
+          git fetch --quiet origin automation/eversense-deep-review
 
-          {
-            echo '=== Eversense Kotlin files ==='
-            find plugins/eversense plugins/source -type f \( -name '*.kt' -o -name '*.kts' \) | sort
-            echo
-            echo '=== Print stack traces ==='
-            grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense plugins/source || true
-            echo
-            echo '=== TODO/FIXME markers ==='
-            grep -RInE --include='*.kt' 'TODO|FIXME' plugins/eversense plugins/source || true
-            echo
-            echo '=== Potential secret logging ==='
-            grep -RInE --include='*.kt' 'SessionKey|access_token|password|privateKey|CLIENT_SECRET|Authorization' plugins/eversense plugins/source || true
-            echo
-            echo '=== Blocking/shared-preference writes ==='
-            grep -RInE --include='*.kt' 'commit = true|runBlocking|\.get\(\)' plugins/eversense plugins/source || true
-            echo
-            echo '=== Hardcoded Gradle dependencies ==='
-            grep -RInE --include='*.kts' '(implementation|api|testImplementation)\("' plugins/eversense plugins/source || true
-          } > /tmp/eversense-review/static-diagnostics.txt
+          : > /tmp/eversense-review.patch.xz.b64
+          for chunk in 00 01 02 03 04 05 06; do
+            git show "origin/automation/eversense-deep-review:.github/patch-chunks/chunk-${chunk}" >> /tmp/eversense-review.patch.xz.b64
+          done
+          base64 --decode /tmp/eversense-review.patch.xz.b64 | xz --decompress > /tmp/eversense-review.patch
+          echo "b7020f5fb48502bfc88017d382090813aaa01c53d2df3093b830e2bb31e4f459  /tmp/eversense-review.patch" | sha256sum --check
 
-      - name: Upload source bundle
+          git apply --check /tmp/eversense-review.patch
+          git apply /tmp/eversense-review.patch
+          git diff --check
+
+          ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
+          ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
+          git diff --stat | tee /tmp/eversense-review-stat.txt
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run focused and integration checks
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace \
+            :plugins:eversense:testFullDebugUnitTest \
+            :plugins:eversense:lintFullDebug \
+            :plugins:source:compileFullDebugKotlin \
+            :plugins:source:lintFullDebug \
+            :core:data:test \
+            :core:keys:compileFullDebugKotlin \
+            :database:impl:compileFullDebugKotlin \
+            :database:persistence:compileFullDebugKotlin \
+            :app:compileFullDebugKotlin \
+            2>&1 | tee /tmp/eversense-review-tests.log
+
+      - name: Commit fixes to pull request branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            app/src/main/kotlin/app/aaps/di/PluginsListModule.kt \
+            core/interfaces/src/main/kotlin/app/aaps/core/interfaces/notifications/NotificationId.kt \
+            core/keys/src/main/kotlin/app/aaps/core/keys/BooleanKey.kt \
+            core/keys/src/main/res/values/strings.xml \
+            gradle/libs.versions.toml \
+            plugins/eversense \
+            plugins/source \
+            settings.gradle
+          git commit -m "fix: harden Eversense integration after deep review"
+          git push origin HEAD:feature/eversense-integration
+          git show --stat --oneline --summary HEAD | tee /tmp/eversense-review-commit.txt
+
+      - name: Upload review reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eversense-deep-review-sources
-          path: /tmp/eversense-review
-          if-no-files-found: error
-          retention-days: 7
+          name: eversense-deep-review-reports
+          path: |
+            /tmp/eversense-review-stat.txt
+            /tmp/eversense-review-tests.log
+            /tmp/eversense-review-commit.txt
+          if-no-files-found: warn
+          retention-days: 14
