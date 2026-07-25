@@ -387,40 +387,59 @@ class EversenseGattCallback(
     // Returns the reassembled [prefix+ciphertext] blob once all chunks of a message have
     // arrived, or null while still waiting on more chunks. A malformed/out-of-sequence chunk
     // discards whatever was in progress rather than risk splicing mismatched chunks together.
+    private fun resetChunkAccumulator() {
+        chunkAccumulator = ByteArray(0)
+        chunkTotalExpected = 1
+        chunkNextIndex = 1
+    }
+
     private fun accumulateChunk(rawData: ByteArray): ByteArray? {
         if (rawData.size < 2) {
             EversenseLogger.warning(TAG, "Chunk too short to contain a header - size: ${rawData.size}")
+            resetChunkAccumulator()
             return null
         }
 
         val chunkIndex = rawData[0].toInt() and 0xFF
         val totalChunks = rawData[1].toInt() and 0xFF
+        if (totalChunks == 0 || chunkIndex !in 1..totalChunks) {
+            EversenseLogger.warning(TAG, "Invalid chunk header - chunk $chunkIndex of $totalChunks")
+            resetChunkAccumulator()
+            return null
+        }
+
+        val headerSize = if (chunkIndex == 1) 3 else 2
+        if (rawData.size < headerSize) {
+            EversenseLogger.warning(TAG, "Chunk $chunkIndex/$totalChunks has a truncated header - size: ${rawData.size}")
+            resetChunkAccumulator()
+            return null
+        }
 
         if (chunkIndex == 1) {
             if (chunkNextIndex != 1) {
                 EversenseLogger.warning(TAG, "New chunk sequence started before previous one (chunk $chunkNextIndex/$chunkTotalExpected) completed - discarding partial data")
             }
-            chunkAccumulator = rawData.copyOfRange(3, rawData.size)
+            chunkAccumulator = rawData.copyOfRange(headerSize, rawData.size)
             chunkTotalExpected = totalChunks
             chunkNextIndex = 2
         } else {
             if (chunkIndex != chunkNextIndex || totalChunks != chunkTotalExpected) {
                 EversenseLogger.warning(TAG, "Out-of-sequence chunk (got $chunkIndex/$totalChunks, expected $chunkNextIndex/$chunkTotalExpected) - discarding in-progress message")
-                chunkAccumulator = ByteArray(0)
-                chunkTotalExpected = 1
-                chunkNextIndex = 1
+                resetChunkAccumulator()
                 return null
             }
-            chunkAccumulator += rawData.copyOfRange(2, rawData.size)
+            chunkAccumulator += rawData.copyOfRange(headerSize, rawData.size)
             chunkNextIndex++
         }
 
         if (chunkNextIndex <= chunkTotalExpected) return null
 
         val complete = chunkAccumulator
-        chunkAccumulator = ByteArray(0)
-        chunkTotalExpected = 1
-        chunkNextIndex = 1
+        resetChunkAccumulator()
+        if (complete.isEmpty()) {
+            EversenseLogger.warning(TAG, "Completed chunk sequence contained no payload")
+            return null
+        }
         return complete
     }
 
@@ -469,7 +488,7 @@ class EversenseGattCallback(
             return
         }
 
-        if (Eversense365Packets.isKeepAlivePacket(data[0], data[1])) {
+        if (data.size >= 2 && Eversense365Packets.isKeepAlivePacket(data[0], data[1])) {
             EversenseLogger.debug(TAG, "Keep Alive packet received (365)!")
 
             val packet = KeepAlivePacket()

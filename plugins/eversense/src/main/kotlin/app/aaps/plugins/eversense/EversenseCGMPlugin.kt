@@ -138,8 +138,8 @@ class EversenseCGMPlugin(
     }
 
     fun disconnect() {
-        if (!gattCallback.isConnected()) {
-            EversenseLogger.info(TAG, "disconnect() called but not currently connected")
+        if (!gattCallback.isBleConnected()) {
+            EversenseLogger.info(TAG, "disconnect() called but no BLE connection is active")
             return
         }
         gattCallback.disconnect()

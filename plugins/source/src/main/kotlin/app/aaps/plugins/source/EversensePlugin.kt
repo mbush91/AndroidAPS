@@ -221,12 +221,27 @@ class EversensePlugin @Inject constructor(
                 )
             ),
             EversenseIntentKey.EversenseSignOut.withClick {
+                preferences.put(EversenseStringKey.EversenseUsername, "")
+                preferences.put(EversenseStringKey.EversensePassword, "")
                 val cleared = getSecureState().also {
                     it.username = ""
                     it.password = ""
                 }
                 saveSecureState(cleared)
-                aapsLogger.info(LTag.BGSOURCE, "Eversense credentials cleared by user")
+                securePrefs.edit(commit = true) {
+                    remove(StorageKeys.ACCESS_TOKEN)
+                    remove(StorageKeys.ACCESS_TOKEN_EXPIRY)
+                }
+                eversense.username = ""
+                eversense.password = ""
+                eversense.clearStoredDevice()
+                eversense.disconnect()
+                notificationManager.post(
+                    NotificationId.EVERSENSE_CREDENTIALS,
+                    rh.gs(R.string.eversense_credentials_missing),
+                    level = NotificationLevel.URGENT
+                )
+                aapsLogger.info(LTag.BGSOURCE, "Eversense credentials and stored device cleared by user")
             },
             EversenseIntentKey.EversenseDocumentation.withClick {
                 val intent = Intent(
