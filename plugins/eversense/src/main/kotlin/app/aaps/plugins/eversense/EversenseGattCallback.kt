@@ -108,11 +108,14 @@ class EversenseGattCallback(
     @Volatile
     private var reconnectAttempts: Int = 0
 
+    @Volatile
+    private var autoReconnectEnabled: Boolean = true
+
     // Persistent reconnect: retries every 60s indefinitely while disconnected.
     // Android autoConnect gives up silently after ~30 min on Samsung devices.
     private val persistentReconnectRunnable = object : Runnable {
         override fun run() {
-            if (!connected) {
+            if (autoReconnectEnabled && !connected) {
                 EversenseLogger.info(TAG, "Persistent reconnect tick — still disconnected, retrying...")
                 plugin.connect(null)
                 handler.postDelayed(this, 60_000L)
@@ -137,17 +140,34 @@ class EversenseGattCallback(
     fun submitToExecutor(task: () -> Unit): java.util.concurrent.Future<*> =
         bleExecutor.submit(task)
 
-    // FIX 4: Added disconnect() which calls both disconnect() and close() on the GATT client.
-    // Calling only disconnect() without close() leaks the underlying GATT client resource.
+    fun enableAutoReconnect() {
+        autoReconnectEnabled = true
+    }
+
+    fun trackGatt(gatt: BluetoothGatt) {
+        bluetoothGatt = gatt
+    }
+
+    fun invalidateAuthentication() {
+        cryptoUtil.disallowUseShortcut()
+        shortcutFailCount = 0
+    }
+
+    // A user/plugin initiated disconnect must stop every scheduled reconnect. Internal recovery
+    // paths call BluetoothGatt.disconnect() directly and therefore keep auto-reconnect enabled.
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        autoReconnectEnabled = false
+        handler.removeCallbacksAndMessages(null)
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
         connected = false
         transmitterReady = false
-        EversenseLogger.info(TAG, "GATT disconnected and closed")
+        currentPacket.set(null)
+        EversenseLogger.info(TAG, "GATT disconnected and auto-reconnect disabled")
     }
+
     @SuppressLint("MissingPermission")
     fun cleanUp() {
         bluetoothGatt?.disconnect()
@@ -155,10 +175,13 @@ class EversenseGattCallback(
         bluetoothGatt = null
         connected = false
         transmitterReady = false
+        currentPacket.set(null)
+        resetChunkAccumulator()
         bleExecutor.shutdownNow()
         bleExecutor = Executors.newSingleThreadExecutor()
         EversenseLogger.info(TAG, "GATT cleaned up before reconnect")
     }
+
     @SuppressLint("MissingPermission")
     fun readRssi() {
         bluetoothGatt?.readRemoteRssi() ?: EversenseLogger.warning(TAG, "Cannot read RSSI — not connected")
@@ -180,9 +203,7 @@ class EversenseGattCallback(
 
         if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
             bluetoothGatt = gatt
-            // FIX 3: Set connected flag on confirmed STATE_CONNECTED.
             connected = true
-            // Reset backoff counters on successful connection
             reconnectAttempts = 0
             failedConnectionAttempts = 0
             handler.removeCallbacks(persistentReconnectRunnable)
@@ -191,8 +212,6 @@ class EversenseGattCallback(
                 putString(StorageKeys.REMOTE_DEVICE_KEY, gatt.device.address)
             }
 
-            // FIX 5: Both connect and disconnect watcher notifications are now dispatched via
-            // handler.post() so they always arrive on the main thread, preventing UI thread crashes.
             handler.post {
                 plugin.watchers.forEach { it.onConnectionChanged(true) }
             }
@@ -208,11 +227,7 @@ class EversenseGattCallback(
         if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
             EversenseLogger.warning(TAG, "Disconnected or failed - status: $status, newState: $newState")
 
-            // FIX 11: For E365 normal post-sync disconnect (status 19), reuse the existing
-            // GATT object and call gatt.connect() directly — exactly as the official app does.
-            // This preserves the BLE bond and session key so the shortcut auth path works
-            // without needing internet. For all other disconnects, close and reconnect fresh.
-            if (status == 19 && is365()) {
+            if (status == 19 && is365() && autoReconnectEnabled) {
                 connected = false
                 transmitterReady = false
                 handler.post {
@@ -233,7 +248,6 @@ class EversenseGattCallback(
             }
 
             if (status == 19) {
-                // E3 only — E365 status 19 is handled above
                 failedConnectionAttempts++
                 EversenseLogger.warning(TAG, "Connection terminated by transmitter (status 19) — attempt $failedConnectionAttempts")
                 if (failedConnectionAttempts >= PLACEMENT_WARNING_THRESHOLD) {
@@ -244,18 +258,7 @@ class EversenseGattCallback(
             }
 
             val storedAddress = preferences.getString(StorageKeys.REMOTE_DEVICE_KEY, null)
-            if (storedAddress != null) {
-                // Exponential backoff so AAPS reclaims the transmitter quickly after boot
-                // (when the official Eversense app temporarily holds the BLE connection)
-                // and avoids battery drain during sustained unavailability.
-                //
-                // Status 19 = transmitter actively rejected us (placement issue, not competition) —
-                // use a fixed 30 s interval so we don't spam it.
-                // Status GATT_SUCCESS = clean disconnect (we or the transmitter closed cleanly) —
-                // reconnect quickly in 5 s.
-                // All other status codes (e.g. 133 = GATT_ERROR, device busy) = backoff:
-                //   attempt 0 → 5 s, attempt 1 → 10 s, attempt 2 → 20 s, attempt 3 → 40 s,
-                //   attempt 4+ → 60 s cap.
+            if (storedAddress != null && autoReconnectEnabled) {
                 val delayMs: Long = when {
                     status == 19 -> 30_000L
                     status == BluetoothGatt.GATT_SUCCESS -> 5_000L
@@ -269,11 +272,10 @@ class EversenseGattCallback(
                     EversenseLogger.info(TAG, "Attempting auto-reconnect (attempt $reconnectAttempts)...")
                     plugin.connect(null)
                 }, delayMs)
-                // Also start persistent 60s retry loop in case autoConnect gives up
                 handler.removeCallbacks(persistentReconnectRunnable)
                 handler.postDelayed(persistentReconnectRunnable, 60_000L)
             } else {
-                EversenseLogger.warning(TAG, "No stored device address — skipping auto-reconnect")
+                EversenseLogger.info(TAG, "Auto-reconnect skipped (enabled=$autoReconnectEnabled, storedAddress=${storedAddress != null})")
             }
         }
     }
@@ -301,9 +303,6 @@ class EversenseGattCallback(
             return
         }
 
-        // FIX 6: Use firstOrNull instead of first. The original code used .first {} which throws
-        // NoSuchElementException if the service is missing. The null check below it was dead code
-        // that could never be reached. firstOrNull correctly returns null on no match.
         val service = gatt.services.firstOrNull { it.uuid.toString() == serviceUUID }
         if (service == null) {
             EversenseLogger.error(TAG, "Required service not found -> disconnecting")
@@ -362,10 +361,6 @@ class EversenseGattCallback(
         }
     }
 
-    // FIX 7: Override both the deprecated and current API 33+ signature of onCharacteristicChanged.
-    // On Android 13+ (API 33+) the old single-argument override is never called by the system —
-    // only the new three-argument version is. Without this override, glucose data would be silently
-    // dropped on API 33+ devices. Both delegates to a shared handler to avoid code duplication.
     @SuppressLint("MissingPermission")
     @OptIn(ExperimentalStdlibApi::class)
     override fun onCharacteristicChanged(
@@ -384,9 +379,6 @@ class EversenseGattCallback(
         handleCharacteristicChanged(gatt, characteristic.value)
     }
 
-    // Returns the reassembled [prefix+ciphertext] blob once all chunks of a message have
-    // arrived, or null while still waiting on more chunks. A malformed/out-of-sequence chunk
-    // discards whatever was in progress rather than risk splicing mismatched chunks together.
     private fun resetChunkAccumulator() {
         chunkAccumulator = ByteArray(0)
         chunkTotalExpected = 1
@@ -446,6 +438,10 @@ class EversenseGattCallback(
     @SuppressLint("MissingPermission")
     @OptIn(ExperimentalStdlibApi::class)
     private fun handleCharacteristicChanged(gatt: BluetoothGatt, rawData: ByteArray) {
+        if (rawData.isEmpty()) {
+            EversenseLogger.warning(TAG, "Ignoring empty BLE notification")
+            return
+        }
         EversenseLogger.debug(TAG, "Received data: ${rawData.toHexString()}")
 
         var data = rawData
@@ -466,9 +462,6 @@ class EversenseGattCallback(
         if (!is365() && EversenseE3Packets.isPushPacket(data[0])) {
             EversenseLogger.debug(TAG, "Keep Alive packet received (E3)!")
             bleExecutor.submit {
-                // Sync transmitter clock before reading glucose so the glucose timestamp
-                // reflects phone time, not the drifted transmitter clock. The official app
-                // always calls postCurrentDateTimeRequest before postReadSensorGlucose.
                 try {
                     val currentDatetime = writePacket<app.aaps.plugins.eversense.packets.e3.GetCurrentDatetimePacket.Response>(
                         app.aaps.plugins.eversense.packets.e3.GetCurrentDatetimePacket()
@@ -504,7 +497,6 @@ class EversenseGattCallback(
             }
             return
         } else if (data.size >= 4 && data[0] == Eversense365Packets.NotificationResponseId && data[1] == 0x03.toByte()) {
-            // Push alarm notification
             val alarmCode = data[2].toInt() and 0xFF
             val alarm = app.aaps.plugins.eversense.models.ActiveAlarm(
                 code = app.aaps.plugins.eversense.enums.EversenseAlarm.from(alarmCode),
@@ -522,6 +514,11 @@ class EversenseGattCallback(
             return
         }
 
+        if (security == EversenseSecurityType.SecureV2 && data.size < 2) {
+            EversenseLogger.warning(TAG, "Ignoring truncated secure response: ${data.size} byte(s)")
+            return
+        }
+
         val packet = currentPacket.get() ?: run {
             EversenseLogger.warning(TAG, "currentPacket is null -> skipping packet")
             return
@@ -533,13 +530,10 @@ class EversenseGattCallback(
                 return
             }
 
-            // Only treat 0x80 as an error if it is NOT the expected response ID for this packet.
-            // ReadSingleByteSerialFlashRegister responses legitimately use 0xAA (170) as their
-            // response ID — but earlier versions of this code checked 0x80 before checking the
-            // expected response ID, causing every battery/readiness/calibration read to fail.
             if (EversenseE3Packets.isErrorPacket(data[0]) && packetAnnotation.responseId != data[0]) {
                 EversenseLogger.error(TAG, "Received error response - data: ${data.toHexString()}")
                 packet.isErrorResponse = true
+                packet.responseReceived = true
                 packet.notifyAll()
                 return
             }
@@ -550,6 +544,7 @@ class EversenseGattCallback(
                     return
                 }
                 packet.appendData(data.toUByteArray())
+                packet.responseReceived = true
                 packet.notifyAll()
             } else {
                 if (packetAnnotation.responseId != data[0]) {
@@ -561,6 +556,7 @@ class EversenseGattCallback(
                     return
                 }
                 packet.appendData(data.toUByteArray())
+                packet.responseReceived = true
                 packet.notifyAll()
             }
         }
@@ -572,54 +568,50 @@ class EversenseGattCallback(
     @Throws(EversenseWriteException::class)
     fun <T : EversenseBasePacket.Response> writePacket(packet: EversenseBasePacket, timeoutMs: Long = WRITE_TIMEOUT_MS): T {
         val gatt = bluetoothGatt ?: throw EversenseWriteException("Gatt is null — not connected")
-
         val requestCharacteristic = requestCharacteristic
             ?: throw EversenseWriteException("requestCharacteristic is null")
-
         val requestData = packet.buildRequest(cryptoUtil, payloadSize)
             ?: throw EversenseWriteException("Failed to build request data")
 
-        // FIX 2: Use AtomicReference.set() for thread-safe assignment of currentPacket.
         currentPacket.set(packet)
+        try {
+            EversenseLogger.debug(TAG, "Writing data: ${requestData.toHexString()}")
+            @Suppress("DEPRECATION")
+            requestCharacteristic.setValue(requestData)
+            @Suppress("DEPRECATION")
+            if (!gatt.writeCharacteristic(requestCharacteristic)) {
+                throw EversenseWriteException("Bluetooth stack rejected characteristic write")
+            }
 
-        EversenseLogger.debug(TAG, "Writing data: ${requestData.toHexString()}")
-        @Suppress("DEPRECATION")
-        requestCharacteristic.setValue(requestData)
-        @Suppress("DEPRECATION")
-        gatt.writeCharacteristic(requestCharacteristic)
-
-        synchronized(packet) {
-            try {
-                // FIX 8: Explicitly detect timeout by comparing elapsed time after wait() returns.
-                // Previously, a timeout would fall through to parseResponse() silently, likely
-                // producing a confusing cast exception rather than a clear timeout error.
-                val start = System.currentTimeMillis()
-                packet.wait(timeoutMs)
-                val elapsed = System.currentTimeMillis() - start
-                if (elapsed >= timeoutMs) {
-                    currentPacket.set(null)
-                    throw EversenseWriteException("Timed out waiting for response after ${timeoutMs}ms — packet: ${packet.getAnnotation()?.responseId}")
-                } else if (packet.isErrorResponse) {
-                    currentPacket.set(null)
+            synchronized(packet) {
+                val deadline = System.currentTimeMillis() + timeoutMs
+                while (!packet.responseReceived && !packet.isErrorResponse) {
+                    val remaining = deadline - System.currentTimeMillis()
+                    if (remaining <= 0) {
+                        throw EversenseWriteException(
+                            "Timed out waiting for response after ${timeoutMs}ms — packet: ${packet.getAnnotation()?.responseId}"
+                        )
+                    }
+                    try {
+                        packet.wait(remaining)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw EversenseWriteException("Interrupted while waiting for transmitter response")
+                    }
+                }
+                if (packet.isErrorResponse) {
                     throw EversenseWriteException("Transmitter returned error response — packet: ${packet.getAnnotation()?.responseId}")
                 }
-            } catch (e: EversenseWriteException) {
-                throw e
-            } catch (e: Exception) {
-                EversenseLogger.error(TAG, "Exception during packet wait: $e")
-                e.printStackTrace()
             }
-        }
 
-        return try {
-            val response = packet.parseResponse()
-            currentPacket.set(null)
-            response as? T
-                ?: throw EversenseWriteException("Unable to cast response — packet: ${packet.getAnnotation()?.responseId}")
+            return packet.parseResponse() as? T
+                ?: throw EversenseWriteException("Unable to parse response — packet: ${packet.getAnnotation()?.responseId}")
         } catch (e: EversenseWriteException) {
             throw e
         } catch (e: Exception) {
-            throw EversenseWriteException("Failed to parse response: $e")
+            throw EversenseWriteException("Failed to process response: $e")
+        } finally {
+            currentPacket.compareAndSet(packet, null)
         }
     }
 
@@ -633,16 +625,12 @@ class EversenseGattCallback(
         }
 
         EversenseLogger.info(TAG, "E3 auth complete — notifying watchers")
-        // fullSync is triggered by onConnectionChanged via triggerFullSync on the bleExecutor.
-        // Do NOT call fullSync here — it would race with the triggerFullSync call.
         transmitterReady = true
         handler.post { plugin.watchers.forEach { it.onTransmitterReady() } }
     }
 
     @SuppressLint("MissingPermission")
     private fun authV2flow() {
-        // FIX 9: Network calls (login, getFleetSecretV2) are dispatched to a separate networkExecutor
-        // so they do not block the bleExecutor, which must remain available for BLE callbacks.
         try {
             if (!cryptoUtil.generateKeyPairIfNotExists()) {
                 bluetoothGatt?.disconnect()
@@ -653,36 +641,33 @@ class EversenseGattCallback(
                 val clientId = cryptoUtil.getClientId()
                 val whoAmI = writePacket<AuthWhoAmIPacket.Response>(AuthWhoAmIPacket(clientId))
 
-                // Dispatch HTTP work to the network executor and block bleExecutor until complete.
-                                // Sync credentials from AAPS layer into SECURE_STATE before login
-                // Guaranteed same-thread write immediately before network call
                 if (plugin.username.isNotEmpty() && plugin.password.isNotEmpty()) {
-                    val stateJson = preferences.getString(app.aaps.plugins.eversense.util.StorageKeys.SECURE_STATE, null) ?: "{}"
-                    val secState = kotlinx.serialization.json.Json.decodeFromString<app.aaps.plugins.eversense.models.EversenseSecureState>(stateJson)
-                    secState.username = plugin.username
-                    secState.password = plugin.password
-                    preferences.edit().putString(app.aaps.plugins.eversense.util.StorageKeys.SECURE_STATE,
-                        kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secState)).apply()
-                    EversenseLogger.info(TAG, "[365] Credentials synced to SECURE_STATE before login")
+                    val stateJson = preferences.getString(StorageKeys.SECURE_STATE, null) ?: "{}"
+                    val secureState = kotlinx.serialization.json.Json.decodeFromString<app.aaps.plugins.eversense.models.EversenseSecureState>(stateJson)
+                    secureState.username = plugin.username
+                    secureState.password = plugin.password
+                    preferences.edit()
+                        .putString(
+                            StorageKeys.SECURE_STATE,
+                            kotlinx.serialization.json.Json.encodeToString(
+                                app.aaps.plugins.eversense.models.EversenseSecureState.serializer(),
+                                secureState
+                            )
+                        )
+                        .apply()
                 }
-val authSession = networkExecutor.submit<Any?> {
+
+                val authSession = networkExecutor.submit {
                     EversenseHttp365Util.login(preferences)
-                }.get() ?: run {
-                    bluetoothGatt?.disconnect()
-                    return
-                }
+                }.get() ?: throw EversenseWriteException("E365 DMS login failed")
 
-                authSession as? EversenseHttp365Util.LoginResponseModel ?: run {
-                    bluetoothGatt?.disconnect()
-                    return
-                }
-
-                // Cache access token so it can be used for cloud uploads without re-login
                 val expiryMs = System.currentTimeMillis() + (authSession.expires_in * 1000L)
-                preferences.edit().putString(StorageKeys.ACCESS_TOKEN, authSession.access_token)
-                    .putLong(StorageKeys.ACCESS_TOKEN_EXPIRY, expiryMs).apply()
+                preferences.edit()
+                    .putString(StorageKeys.ACCESS_TOKEN, authSession.access_token)
+                    .putLong(StorageKeys.ACCESS_TOKEN_EXPIRY, expiryMs)
+                    .apply()
 
-                val fleet = networkExecutor.submit<Any?> {
+                val fleetResponse = networkExecutor.submit {
                     EversenseHttp365Util.getFleetSecretV2(
                         accessToken = authSession.access_token,
                         serialNumber = whoAmI.serialNumber,
@@ -690,72 +675,46 @@ val authSession = networkExecutor.submit<Any?> {
                         flags = whoAmI.flags,
                         publicKey = cryptoUtil.getClientPublicKey()
                     )
-                }.get() ?: run {
-                    bluetoothGatt?.disconnect()
-                    return
-                }
+                }.get() ?: throw EversenseWriteException("E365 transmitter certificate request failed")
 
-                val fleetResponse = fleet as? EversenseHttp365Util.FleetSecretV2ResponseModel ?: run {
-                    bluetoothGatt?.disconnect()
-                    return
-                }
-
+                val certificate = fleetResponse.Result.Certificate
+                    ?: throw EversenseWriteException("E365 transmitter certificate was empty")
                 @OptIn(ExperimentalStdlibApi::class)
-                writePacket<AuthIdentityPacket.Response>(
-                    AuthIdentityPacket(fleetResponse.Result.Certificate?.hexToByteArray() ?: byteArrayOf())
-                )
-
+                writePacket<AuthIdentityPacket.Response>(AuthIdentityPacket(certificate.hexToByteArray()))
                 cryptoUtil.allowUseShortcut()
             }
 
-            val signature = cryptoUtil.generateEphem() ?: run {
-                bluetoothGatt?.disconnect()
-                return
+            val signature = cryptoUtil.generateEphem()
+                ?: throw EversenseWriteException("Failed to generate E365 ephemeral signature")
+            val session = writePacket<AuthStartPacket.Response>(AuthStartPacket(cryptoUtil.getStartSecret(signature)))
+            if (!cryptoUtil.generateSessionKey(session.sessionPublicKey)) {
+                throw EversenseWriteException("Failed to derive E365 session key")
             }
 
-            val session = writePacket<AuthStartPacket.Response>(AuthStartPacket(cryptoUtil.getStartSecret(signature)))
-            cryptoUtil.generateSessionKey(session.sessionPublicKey)
-
-            // Auth succeeded — reset the shortcut fail counter
             shortcutFailCount = 0
-
-            EversenseLogger.info(TAG, "365 auth complete — ready for full sync")
+            EversenseLogger.info(TAG, "E365 authentication complete")
             Eversense365Communicator.fullSync(this, preferences, plugin.watchers, force = true)
-                        // Read glucose immediately after auth so readings don't wait for next Keep Alive
-            // This prevents late readings after reconnect from fullSync disconnect fix
             try {
                 Eversense365Communicator.readGlucose(this, preferences, plugin.watchers)
             } catch (e: Exception) {
-                EversenseLogger.warning(TAG, "[365] readGlucose after auth failed (non-fatal): $e")
+                EversenseLogger.warning(TAG, "E365 read after authentication failed (non-fatal): $e")
             }
-EversenseLogger.info(TAG, "365 transmitter ready — notifying watchers")
             transmitterReady = true
             handler.post { plugin.watchers.forEach { it.onTransmitterReady() } }
-
         } catch (exception: Exception) {
-            EversenseLogger.error(TAG, "[365] authV2 failed: $exception")
-            exception.printStackTrace()
-
-            // After first successful auth, never call DMS server again.
-            // DMS login only happens on fresh install, app update, or phone reboot
-            // (all of which clear SharedPreferences and reset canUseShortcut to false).
-            // On shortcut failure just log and retry — do NOT fall back to DMS.
+            EversenseLogger.error(TAG, "E365 authentication failed: $exception")
             if (cryptoUtil.canUseShortcut()) {
                 shortcutFailCount++
-                EversenseLogger.warning(TAG, "Shortcut auth failed () — will retry shortcut on next connect (no DMS re-auth)")
-                // Reset counter after threshold but keep canUseShortcut=true
-                // so DMS is never called again after first successful auth
                 if (shortcutFailCount >= SHORTCUT_FAIL_THRESHOLD) {
-                    EversenseLogger.warning(TAG, "Shortcut fail threshold reached — resetting counter, keeping shortcut enabled")
+                    EversenseLogger.warning(TAG, "E365 shortcut failed repeatedly — forcing full authentication on next connection")
+                    cryptoUtil.disallowUseShortcut()
                     shortcutFailCount = 0
                 }
             }
-        bluetoothGatt?.disconnect()
+            bluetoothGatt?.disconnect()
         }
     }
 
-    // FIX 10: enableNotify uses the API 33+ writeDescriptor(descriptor, value) overload when
-    // available, falling back to the deprecated setValue approach on older API levels.
     @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun enableNotify(gatt: BluetoothGatt, responseCharacteristic: BluetoothGattCharacteristic) {
