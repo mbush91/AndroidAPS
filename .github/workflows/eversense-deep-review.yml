@@ -1,7 +1,7 @@
 name: Eversense deep review export
 
 on:
-  push:
+  pull_request:
     branches:
       - automation/eversense-deep-review
 
