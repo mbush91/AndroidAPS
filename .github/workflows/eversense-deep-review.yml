@@ -19,215 +19,25 @@ jobs:
           fetch-depth: 400
           show-progress: false
 
-      - name: Apply CGM architecture review fixes
+      - name: Correct review patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "mbush91"
           git config user.email "3998995+mbush91@users.noreply.github.com"
-
           python3 <<'PY'
           from pathlib import Path
-
           path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/EversensePlugin.kt")
           text = path.read_text()
-
-          text = text.replace("import app.aaps.core.keys.IntKey\n", "")
-          text = text.replace(
-              "    ownPreferences = emptyList(),",
-              "    ownPreferences = listOf(EversenseStringKey::class.java),",
-          )
-
-          old_start = '''    override suspend fun onStart() {
-                  super.onStart()
-                  ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-                  eversense.addWatcher(this)
-                  if (hasBluetoothPermissions()) {
-                      aapsLogger.debug(LTag.BGSOURCE, "onStart — permissions granted, attempting auto-reconnect")
-                      ioScope.launch {
-                          eversense.connect(null)
-                      }
-                  } else {
-                      aapsLogger.warn(LTag.BGSOURCE, "Bluetooth permissions not granted — requesting permissions")
-                      requestBluetoothPermissions()
-                  }
-                  // Always sync credentials on startup — eversense.is365() is false until first connect
-                  // so we must set username/password unconditionally for new phone first-boot
-                  checkCredentialsNotification()
-              }
-
-              override suspend fun onStop() {
-                  super.onStop()
-                  ioScope.cancel()
-                  mainHandler.removeCallbacksAndMessages(null)
-                  eversense.removeWatcher(this)
-              }'''
-          new_start = '''    override suspend fun onStart() {
-                  super.onStart()
-                  ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-                  eversense.addWatcher(this)
-                  // Credentials must be synchronized before BLE authentication can begin.
-                  checkCredentialsNotification()
-                  if (hasBluetoothPermissions()) {
-                      aapsLogger.debug(LTag.BGSOURCE, "onStart — permissions granted, attempting auto-reconnect")
-                      ioScope.launch {
-                          eversense.connect(null)
-                      }
-                  } else {
-                      aapsLogger.warn(LTag.BGSOURCE, "Bluetooth permissions not granted — requesting permissions")
-                      requestBluetoothPermissions()
-                  }
-              }
-
-              override suspend fun onStop() {
-                  eversense.stopScan()
-                  eversense.disconnect()
-                  eversense.removeWatcher(this)
-                  ioScope.cancel()
-                  mainHandler.removeCallbacksAndMessages(null)
-                  super.onStop()
-              }'''
-          if old_start not in text:
-              raise SystemExit("onStart/onStop block not found")
-          text = text.replace(old_start, new_start)
-
-          old_state = '''        // Keep SENSOR_CHANGE therapy event in sync with transmitter insertion date.
-                  // Disabled for E3: the forced overwrite every BT cycle injected raw transmitter
-                  // uptime (subject to deep-sleep pauses), causing the home screen timer to drift.
-                  // E365 is unaffected and retains the original sync behavior.
-                  if (state.insertionDate > 0 && eversense.is365()) {
-                      ioScope.launch {
-                          persistenceLayer.insertCgmSourceData(Sources.Eversense, emptyList(), emptyList(), state.insertionDate)
-                          aapsLogger.debug(LTag.BGSOURCE, "Updated SENSOR_CHANGE event to insertionDate: ${state.insertionDate}")
-                      }
-                  }
-
-                  // Sync SAGE color thresholds to match Eversense sensor lifetime and notification days
-                  if (state.insertionDate > 0) {
-                      val lifetimeDays = if (eversense.is365()) 365 else 180
-                      val warnHours  = (lifetimeDays - 30) * 24   // orange when 30 days remaining
-                      val urgentHours = (lifetimeDays - 10) * 24  // red when 10 days remaining
-                      preferences.put(IntKey.OverviewSageWarning, warnHours)
-                      preferences.put(IntKey.OverviewSageCritical, urgentHours)
-                  }
-
-          '''
-          if old_state not in text:
-              raise SystemExit("state side-effect block not found")
-          text = text.replace(old_state, "")
-
-          old_battery = '''        if (isAfterNoonBattery && state.batteryPercentage in 1..10 && !isBatteryLowDismissed()) {
-                      setBatteryLowDismissed()
-                      notificationManager.post(
-                          NotificationId.EVERSENSE_ALARM,
-                          rh.gs(R.string.eversense_battery_low, state.batteryPercentage),
-                          level = NotificationLevel.NORMAL
-                      )
-                  }
-          '''
-          new_battery = '''        if (isAfterNoonBattery && state.batteryPercentage in 1..10 && !isBatteryLowDismissed()) {
-                      setBatteryLowDismissed()
-                      notificationManager.post(
-                          NotificationId.EVERSENSE_ALARM,
-                          rh.gs(R.string.eversense_battery_low, state.batteryPercentage),
-                          level = NotificationLevel.NORMAL
-                      )
-                  } else if (state.batteryPercentage > 10 && isBatteryLowDismissed()) {
-                      securePrefs.edit(commit = true) { remove("eversense_battery_low_dismissed") }
-                  }
-          '''
-          if old_battery not in text:
-              raise SystemExit("battery block not found")
-          text = text.replace(old_battery, new_battery)
-
-          old_read = '''    override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {
-                  val glucoseValues = readings.map { reading ->
-                      GV(
-                          timestamp = reading.datetime,
-                          value = reading.glucoseInMgDl.toDouble(),
-                          noise = null,
-                          raw = null,
-                          trendArrow = TrendArrow.fromString(reading.trend.type),
-                          sourceSensor = when (type) {
-                              EversenseType.EVERSENSE_365 -> SourceSensor.EVERSENSE_365
-                              EversenseType.EVERSENSE_E3  -> SourceSensor.EVERSENSE_E3
-                          }
-                      )
-                  }
-
-                  ioScope.launch {
-                      val state = eversense.getCurrentState()
-                      val insertionDate = state.insertionDate.takeIf { it > 0 }
-                      val result = persistenceLayer.insertCgmSourceData(
-                          Sources.Eversense,
-                          glucoseValues,
-                          listOf(),
-                          insertionDate
-                      )'''
-          new_read = '''    override fun onCGMRead(type: EversenseType, readings: List<EversenseCGMResult>) {
-                  val now = System.currentTimeMillis()
-                  val validReadings = readings.filter {
-                      it.datetime > 0L && it.datetime <= now + 5 * 60 * 1000L && it.glucoseInMgDl > 0
-                  }
-                  if (validReadings.size != readings.size) {
-                      aapsLogger.warn(LTag.BGSOURCE, "Dropped ${readings.size - validReadings.size} invalid Eversense reading(s)")
-                  }
-                  if (validReadings.isEmpty()) return
-
-                  val glucoseValues = validReadings.map { reading ->
-                      GV(
-                          timestamp = reading.datetime,
-                          value = reading.glucoseInMgDl.toDouble(),
-                          noise = null,
-                          raw = null,
-                          trendArrow = TrendArrow.fromString(reading.trend.type),
-                          sourceSensor = when (type) {
-                              EversenseType.EVERSENSE_365 -> SourceSensor.EVERSENSE_365
-                              EversenseType.EVERSENSE_E3  -> SourceSensor.EVERSENSE_E3
-                          }
-                      )
-                  }
-
-                  ioScope.launch {
-                      val state = eversense.getCurrentState()
-                      val insertionDate = state.insertionDate.takeIf {
-                          preferences.get(BooleanKey.BgSourceCreateSensorChange) && it in 1..now
-                      }
-                      val result = persistenceLayer.insertCgmSourceData(
-                          Sources.Eversense,
-                          glucoseValues,
-                          emptyList(),
-                          insertionDate
-                      )'''
-          if old_read not in text:
-              raise SystemExit("onCGMRead opening block not found")
-          text = text.replace(old_read, new_read)
-
-          # Cloud synchronization must use the same validated reading set that is persisted.
-          start = text.index("    override fun onCGMRead")
-          end = text.index("    private fun showDeviceSelectionDialog", start)
-          section = text[start:end]
-          section = section.replace("readings = readings", "readings = validReadings")
-          section = section.replace("${readings.size}", "${validReadings.size}")
-          section = section.replace("readings.firstOrNull", "validReadings.firstOrNull")
-          section = section.replace("readings.filter", "validReadings.filter")
-          text = text[:start] + section + text[end:]
-
-          path.write_text(text)
-
-          boolean_path = Path("core/keys/src/main/kotlin/app/aaps/core/keys/BooleanKey.kt")
-          boolean_text = boolean_path.read_text()
-          old = 'EversenseCloudUploadEnabled("eversense_cloud_upload_enabled", true, R.string.eversense_cloud_upload_enabled),'
-          new = 'EversenseCloudUploadEnabled("eversense_cloud_upload_enabled", false, R.string.eversense_cloud_upload_enabled),'
-          if old not in boolean_text:
-              raise SystemExit("cloud upload preference not found")
-          boolean_path.write_text(boolean_text.replace(old, new))
+          old = "val validReadings = validReadings.filter {"
+          new = "val validReadings = readings.filter {"
+          if old not in text:
+              raise SystemExit("invalid initializer not found")
+          path.write_text(text.replace(old, new, 1))
           PY
-
           git diff --check
-          git add plugins/source/src/main/kotlin/app/aaps/plugins/source/EversensePlugin.kt \
-            core/keys/src/main/kotlin/app/aaps/core/keys/BooleanKey.kt
-          git commit -m "fix: align Eversense source with CGM conventions"
+          git add plugins/source/src/main/kotlin/app/aaps/plugins/source/EversensePlugin.kt
+          git commit -m "fix: correct Eversense reading validation"
           git push origin HEAD:feature/eversense-integration
 
       - name: Set up Java
