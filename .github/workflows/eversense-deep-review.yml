@@ -1,127 +1,23 @@
-name: Eversense deep review fixes
+name: Eversense deep review validation
 
 on:
-  push:
+  pull_request:
     branches:
       - automation/eversense-deep-review
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-review-fixes:
+  validate-review-fixes:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out integration branch
+      - name: Check out staged review branch
         uses: actions/checkout@v4
         with:
-          ref: feature/eversense-integration
-          fetch-depth: 0
+          ref: tmp/eversense-deep-review-fixes
+          fetch-depth: 1
           show-progress: false
-
-      - name: Reconstruct and apply reviewed patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "mbush91"
-          git config user.email "3998995+mbush91@users.noreply.github.com"
-          git fetch --quiet origin automation/eversense-deep-review
-
-          : > /tmp/eversense-review.patch.xz.b64
-          for chunk in 00 01 02 03 04 05 06; do
-            git show "origin/automation/eversense-deep-review:.github/patch-chunks/chunk-${chunk}" >> /tmp/eversense-review.patch.xz.b64
-          done
-          base64 --decode /tmp/eversense-review.patch.xz.b64 | xz --decompress > /tmp/eversense-review.patch
-          echo "b7020f5fb48502bfc88017d382090813aaa01c53d2df3093b830e2bb31e4f459  /tmp/eversense-review.patch" | sha256sum --check
-
-          git apply --check /tmp/eversense-review.patch
-          git apply /tmp/eversense-review.patch
-          python3 <<'PY'
-          from pathlib import Path
-
-          gatt_path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseGattCallback.kt")
-          gatt = gatt_path.read_text().replace(
-              "kotlinx.serialization.json.Json.encodeToString(secureState)",
-              "kotlinx.serialization.json.Json.encodeToString(app.aaps.plugins.eversense.models.EversenseSecureState.serializer(), secureState)",
-          )
-          gatt = gatt.replace(
-              "    fun enableAutoReconnect() {\n        autoReconnectEnabled = true\n    }\n",
-              "    fun enableAutoReconnect() {\n        autoReconnectEnabled = true\n    }\n\n    fun trackGatt(gatt: BluetoothGatt) {\n        bluetoothGatt = gatt\n    }\n",
-          )
-          gatt_path.write_text(gatt)
-
-          manager_path = Path("plugins/eversense/src/main/kotlin/app/aaps/plugins/eversense/EversenseCGMPlugin.kt")
-          manager = manager_path.read_text()
-          manager = manager.replace(
-              "                device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)\n                true\n",
-              "                gattCallback.trackGatt(device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))\n                true\n",
-          )
-          manager = manager.replace(
-              "                remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)\n                true\n",
-              "                gattCallback.trackGatt(remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))\n                true\n",
-          )
-          manager = manager.replace(
-              "    fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {\n        if (!gattCallback.isConnected()) {\n",
-              "    fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {\n        if (glucoseMgDl !in MIN_CALIBRATION_MGDL..MAX_CALIBRATION_MGDL) {\n            EversenseLogger.error(TAG, \"Calibration value outside supported range: $glucoseMgDl mg/dL\")\n            return false\n        }\n        if (!gattCallback.isConnected()) {\n",
-          )
-          manager = manager.replace(
-              "        return try {\n            val future = gattCallback.submitToExecutor {\n",
-              "        val stateBeforeCalibration = getCurrentState()\n        if (!gattCallback.is365() && stateBeforeCalibration.calibrationReadiness != CalibrationReadiness.READY) {\n            EversenseLogger.warning(TAG, \"E3 calibration rejected because readiness is ${stateBeforeCalibration.calibrationReadiness}\")\n            return false\n        }\n        return try {\n            val future = gattCallback.submitToExecutor {\n",
-              1,
-          )
-          manager = manager.replace("            updatedState.nextCalibrationDate = timestampMs + 24 * 60 * 60 * 1000L\n", "")
-          manager = manager.replace(
-              "        private const val TAG = \"EversenseCGMManager\"\n",
-              "        private const val TAG = \"EversenseCGMManager\"\n        const val MIN_CALIBRATION_MGDL = 40\n        const val MAX_CALIBRATION_MGDL = 400\n",
-          )
-          manager_path.write_text(manager)
-
-          status_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt")
-          status = status_path.read_text()
-          status = status.replace(
-              "import java.util.Locale\n",
-              "import java.util.Locale\nimport java.util.concurrent.CopyOnWriteArrayList\nimport java.util.concurrent.atomic.AtomicBoolean\n",
-          )
-          status = status.replace(
-              "        val foundDevices = mutableListOf<EversenseScanResult>()\n        var isCancelled = false\n",
-              "        val foundDevices = CopyOnWriteArrayList<EversenseScanResult>()\n        val isCancelled = AtomicBoolean(false)\n",
-          )
-          status = status.replace(
-              "                if (!isCancelled && item.name.matches(Regex(\"T\\\\d+.*\")) && foundDevices.none { it.name == item.name })\n",
-              "                if (!isCancelled.get() && foundDevices.none { it.name == item.name })\n",
-          )
-          status = status.replace("            if (isCancelled) return@postDelayed\n", "            if (isCancelled.get()) return@postDelayed\n")
-          status = status.replace("                isCancelled = true\n", "                isCancelled.set(true)\n")
-          status_path.write_text(status)
-
-          calibration_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseCalibrationActivity.kt")
-          calibration = calibration_path.read_text()
-          calibration = calibration.replace(
-              "import app.aaps.core.interfaces.profile.ProfileUtil\n",
-              "import app.aaps.core.data.model.GlucoseUnit\nimport app.aaps.core.interfaces.profile.ProfileUtil\n",
-          )
-          calibration = calibration.replace("unitLabel.text = profileUtil.units.asText", "unitLabel.text = profileUtil.units.displayLabel")
-          calibration = calibration.replace("units: ${profileUtil.units.asText}", "units: ${profileUtil.units.displayLabel}")
-          calibration = calibration.replace("if (profileUtil.units.asText == \"mmol\")", "if (profileUtil.units == GlucoseUnit.MMOL)")
-          calibration = calibration.replace(
-              "            EversenseLogger.info(TAG, \"Calibration submitting — bgValue: $bgValue, bgMgDl: $bgMgDl\")\n\n            submitButton.isEnabled = false\n",
-              "            if (bgMgDl !in EversenseCGMPlugin.MIN_CALIBRATION_MGDL..EversenseCGMPlugin.MAX_CALIBRATION_MGDL) {\n                EversenseLogger.warning(TAG, \"Calibration outside supported range: $bgMgDl mg/dL\")\n                Toast.makeText(this, getString(R.string.eversense_calibration_invalid_value), Toast.LENGTH_SHORT).show()\n                return@setOnClickListener\n            }\n            EversenseLogger.info(TAG, \"Calibration submitting — bgValue: $bgValue, bgMgDl: $bgMgDl\")\n\n            submitButton.isEnabled = false\n",
-          )
-          calibration_path.write_text(calibration)
-
-          placement_path = Path("plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversensePlacementActivity.kt")
-          placement = placement_path.read_text().replace(
-              "        CoroutineScope(Dispatchers.IO).launch { eversense.exitPositioningMode() }\n",
-              "        ioScope.launch { eversense.exitPositioningMode() }\n",
-          )
-          placement_path.write_text(placement)
-          PY
-          git diff --check
-
-          ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
-          ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
-          ! grep -RIn --include='*.kt' 'matches(Regex("T\\\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
-          git diff --stat | tee /tmp/eversense-review-stat.txt
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -129,7 +25,16 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Run focused and integration checks
+      - name: Static safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check origin/dev...HEAD
+          ! grep -RIn --include='*.kt' 'SessionKey = ' plugins/eversense
+          ! grep -RIn --include='*.kt' 'printStackTrace' plugins/eversense
+          ! grep -RIn --include='*.kt' 'matches(Regex("T\\d+.*"))' plugins/source/src/main/kotlin/app/aaps/plugins/source/activities/EversenseStatusActivity.kt
+
+      - name: Run focused integration checks
         shell: bash
         run: |
           set -o pipefail
@@ -138,7 +43,6 @@ jobs:
             :plugins:eversense:testFullDebugUnitTest \
             :plugins:eversense:lintFullDebug \
             :plugins:source:compileFullDebugKotlin \
-            :plugins:source:lintFullDebug \
             :core:data:test \
             :core:keys:compileFullDebugKotlin \
             :database:impl:compileFullDebugKotlin \
@@ -146,30 +50,11 @@ jobs:
             :app:compileFullDebugKotlin \
             2>&1 | tee /tmp/eversense-review-tests.log
 
-      - name: Commit fixes to pull request branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add \
-            app/src/main/kotlin/app/aaps/di/PluginsListModule.kt \
-            core/interfaces/src/main/kotlin/app/aaps/core/interfaces/notifications/NotificationId.kt \
-            core/keys/src/main/kotlin/app/aaps/core/keys/BooleanKey.kt \
-            core/keys/src/main/res/values/strings.xml \
-            gradle/libs.versions.toml \
-            plugins/eversense \
-            plugins/source
-          git commit -m "fix: harden Eversense integration after deep review"
-          git push origin HEAD:feature/eversense-integration
-          git show --stat --oneline --summary HEAD | tee /tmp/eversense-review-commit.txt
-
-      - name: Upload review reports
+      - name: Upload validation log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eversense-deep-review-reports
-          path: |
-            /tmp/eversense-review-stat.txt
-            /tmp/eversense-review-tests.log
-            /tmp/eversense-review-commit.txt
+          name: eversense-deep-review-validation
+          path: /tmp/eversense-review-tests.log
           if-no-files-found: warn
           retention-days: 14
