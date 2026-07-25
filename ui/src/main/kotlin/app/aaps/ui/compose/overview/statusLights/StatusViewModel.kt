@@ -144,7 +144,7 @@ class StatusViewModel @Inject constructor(
             levelStatus = if (levelPercent >= 0) getLevelStatus((levelPercent * 100).toDouble(), IntKey.OverviewSbatWarning, IntKey.OverviewSbatCritical) else StatusLevel.UNSPECIFIED,
             levelPercent = if (levelPercent >= 0) 1f - levelPercent else -1f,
             icon = IcCgmInsert,
-            compactLevel = false // Overview: sensor battery not shown
+            compactLevel = true // Overview: show sensor battery
         )
     }
 

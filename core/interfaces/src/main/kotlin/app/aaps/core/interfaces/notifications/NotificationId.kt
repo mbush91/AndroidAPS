@@ -128,6 +128,12 @@ enum class NotificationId(
     AIDEX_REPLACE_SENSOR(NORMAL, CGM),
     AIDEX_SIGNAL_LOST(NORMAL, CGM),
 
+    // CGM — Eversense
+    EVERSENSE_RELEASE(NORMAL, CGM),
+    EVERSENSE_PLACEMENT(NORMAL, CGM),
+    EVERSENSE_CREDENTIALS(NORMAL, CGM),
+    EVERSENSE_FIRMWARE(INFO, CGM),
+
     // Loop / APS
     EASY_MODE_ENABLED(IMPORTANT, LOOP),
     UD_MODE_ENABLED(IMPORTANT, LOOP),
@@ -177,7 +183,8 @@ enum class NotificationId(
     SCENE_ENDED(INFO, AUTOMATION, allowMultiple = true),
     SCENE_CHAINED(INFO, AUTOMATION, allowMultiple = true),
     SCENE_CHAIN_SKIPPED(NORMAL, AUTOMATION, allowMultiple = true),
-    SCENE_CHAIN_ERROR(IMPORTANT, AUTOMATION, allowMultiple = true);
+    SCENE_CHAIN_ERROR(IMPORTANT, AUTOMATION, allowMultiple = true),
+    EVERSENSE_ALARM(NORMAL, CGM);
 
     companion object {
 

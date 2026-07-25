@@ -4,6 +4,7 @@ import app.aaps.core.interfaces.di.AllConfigs
 import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.plugins.source.AidexPlugin
 import app.aaps.plugins.source.DexcomPlugin
+import app.aaps.plugins.source.EversensePlugin
 import app.aaps.plugins.source.GlimpPlugin
 import app.aaps.plugins.source.GlunovoPlugin
 import app.aaps.plugins.source.IntelligoPlugin
@@ -130,4 +131,9 @@ abstract class SourcePluginsListModule {
     @IntoMap
     @IntKey(550)
     abstract fun bindRandomBgPlugin(plugin: RandomBgPlugin): PluginBase
+    @Binds
+    @AllConfigs
+    @IntoMap
+    @IntKey(575)
+    abstract fun bindEversensePlugin(plugin: EversensePlugin): PluginBase
 }
