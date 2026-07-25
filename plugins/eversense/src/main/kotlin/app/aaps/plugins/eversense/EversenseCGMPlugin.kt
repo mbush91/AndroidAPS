@@ -101,6 +101,7 @@ class EversenseCGMPlugin(
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice? = null): Boolean {
         stopScan()
+        gattCallback.enableAutoReconnect()
 
         synchronized(connectionLock) {
             if (gattCallback.isConnected()) {
@@ -111,10 +112,15 @@ class EversenseCGMPlugin(
             gattCallback.cleanUp()
 
             return if (device != null) {
+                val previousAddress = preferences.getString(StorageKeys.REMOTE_DEVICE_KEY, null)
+                if (previousAddress != null && previousAddress != device.address) {
+                    EversenseLogger.info(TAG, "Transmitter changed — invalidating cached E365 authentication")
+                    gattCallback.invalidateAuthentication()
+                }
                 EversenseLogger.info(TAG, "Connecting to supplied device: ${device.name}")
                 preferences.edit { putString(StorageKeys.REMOTE_DEVICE_KEY, device.address) }
                 EversenseLogger.info(TAG, "Saved device address for auto-reconnect: ${device.address}")
-                device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                gattCallback.trackGatt(device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))
                 true
             } else {
                 val address = preferences.getString(StorageKeys.REMOTE_DEVICE_KEY, null) ?: run {
@@ -126,7 +132,7 @@ class EversenseCGMPlugin(
                     return false
                 }
                 EversenseLogger.info(TAG, "Reconnecting to stored device: $address")
-                remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                gattCallback.trackGatt(remoteDevice.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE))
                 true
             }
         }
@@ -134,16 +140,17 @@ class EversenseCGMPlugin(
 
     fun clearStoredDevice() {
         preferences.edit { remove(StorageKeys.REMOTE_DEVICE_KEY) }
+        gattCallback.invalidateAuthentication()
         EversenseLogger.info(TAG, "Cleared stored device address")
     }
 
     fun disconnect() {
-        if (!gattCallback.isBleConnected()) {
-            EversenseLogger.info(TAG, "disconnect() called but no BLE connection is active")
-            return
-        }
         gattCallback.disconnect()
         EversenseLogger.info(TAG, "Disconnected from transmitter")
+    }
+
+    fun invalidateAuthentication() {
+        gattCallback.invalidateAuthentication()
     }
 
     fun setDiagnosticMode(isEnabled: Boolean) {
@@ -193,11 +200,19 @@ class EversenseCGMPlugin(
     }
 
     fun sendCalibration(glucoseMgDl: Int, timestampMs: Long = System.currentTimeMillis()): Boolean {
+        if (glucoseMgDl !in MIN_CALIBRATION_MGDL..MAX_CALIBRATION_MGDL) {
+            EversenseLogger.error(TAG, "Calibration value outside supported range: $glucoseMgDl mg/dL")
+            return false
+        }
         if (!gattCallback.isConnected()) {
             EversenseLogger.error(TAG, "Transmitter is not connected")
             return false
         }
-        val state = getCurrentState()
+        val stateBeforeCalibration = getCurrentState()
+        if (!gattCallback.is365() && stateBeforeCalibration.calibrationReadiness != CalibrationReadiness.READY) {
+            EversenseLogger.warning(TAG, "E3 calibration rejected because readiness is ${stateBeforeCalibration.calibrationReadiness}")
+            return false
+        }
         return try {
             val future = gattCallback.submitToExecutor {
                 if (gattCallback.is365()) {
@@ -213,7 +228,6 @@ class EversenseCGMPlugin(
             val stateJson = preferences.getString(StorageKeys.STATE, null) ?: "{}"
             val updatedState = JSON.decodeFromString<EversenseState>(stateJson)
             updatedState.lastCalibrationDate = timestampMs
-            updatedState.nextCalibrationDate = timestampMs + 24 * 60 * 60 * 1000L
             updatedState.calibrationReadiness = CalibrationReadiness.WAITING_POST_CALIBRATION
             preferences.edit(commit = true) {
                 putString(StorageKeys.STATE, JSON.encodeToString(updatedState))
@@ -270,14 +284,16 @@ class EversenseCGMPlugin(
             return
         }
         EversenseLogger.info(TAG, "Triggering full sync on user request")
-        if (gattCallback.is365()) {
-            Eversense365Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
-            Eversense365Communicator.readGlucose(gattCallback, preferences, watchers.toList())
-        } else {
-            EversenseE3Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
-            EversenseE3Communicator.readGlucose(gattCallback, preferences, watchers.toList())
+        gattCallback.submitToExecutor {
+            if (gattCallback.is365()) {
+                Eversense365Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
+                Eversense365Communicator.readGlucose(gattCallback, preferences, watchers.toList())
+            } else {
+                EversenseE3Communicator.fullSync(gattCallback, preferences, watchers.toList(), force)
+                EversenseE3Communicator.readGlucose(gattCallback, preferences, watchers.toList())
+            }
+            gattCallback.readRssi()
         }
-        gattCallback.readRssi()
     }
 
     fun onRssiRead(rssi: Int) {
@@ -290,7 +306,10 @@ class EversenseCGMPlugin(
     }
 
     fun readSignalStrength() {
-        if (!gattCallback.isConnected()) { EversenseLogger.warning(TAG, "Cannot read signal strength — not connected"); return }
+        if (!gattCallback.isConnected()) {
+            EversenseLogger.warning(TAG, "Cannot read signal strength — not connected")
+            return
+        }
         try {
             val signalStrength = if (gattCallback.is365()) {
                 val response = gattCallback.writePacket<GetSignalStrengthPacket.Response>(GetSignalStrengthPacket())
@@ -312,14 +331,6 @@ class EversenseCGMPlugin(
         }
     }
 
-    private fun rssiToStrength(rssi: Int): Int = when {
-        rssi == 0   -> 0
-        rssi >= -65 -> 100
-        rssi >= -75 -> 80
-        rssi >= -85 -> 60
-        rssi >= -95 -> 40
-        else        -> 20
-    }
 
     fun readRssi() {
         gattCallback.readRssi()
@@ -327,6 +338,8 @@ class EversenseCGMPlugin(
 
     companion object {
         private const val TAG = "EversenseCGMManager"
+        const val MIN_CALIBRATION_MGDL = 40
+        const val MAX_CALIBRATION_MGDL = 400
         private val JSON = Json { ignoreUnknownKeys = true }
     }
 }

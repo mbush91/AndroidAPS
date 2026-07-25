@@ -14,6 +14,7 @@ abstract class EversenseBasePacket : Object() {
 
     protected var receivedData = UByteArray(0)
     @Volatile var isErrorResponse: Boolean = false
+    @Volatile var responseReceived: Boolean = false
     open val skipResponseIdValidation: Boolean = false
 
     fun getAnnotation(): EversensePacket? {
