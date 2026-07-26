@@ -58,15 +58,23 @@ jobs:
             --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-receiver-test.log"
 
       - name: Compile unsigned full release
+        id: release
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           ./gradlew :app:assembleFullRelease \
-            --no-daemon \
-            --stacktrace 2>&1 | tee "${RUNNER_TEMP}/byoesa-full-release.log"
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss1024m" \
+            -Dkotlin.daemon.jvm.options="-Xmx2g" \
+            -Dkotlin.compiler.execution.strategy="in-process" \
+            -Dorg.gradle.daemon=true \
+            -Dorg.gradle.workers.max=4 \
+            -Dorg.gradle.caching=true \
+            2>&1 | tee "${RUNNER_TEMP}/byoesa-full-release.log"
 
       - name: Upload failure diagnostics
-        if: failure()
+        if: failure() || steps.release.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: byoesa-source-ci-diagnostics
@@ -79,3 +87,13 @@ jobs:
             app/build/reports/
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Enforce release build result
+        if: always()
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+        run: |
+          if [[ "${RELEASE_OUTCOME}" != "success" ]]; then
+            echo "Full release assembly failed; see the diagnostics artifact." >&2
+            exit 1
+          fi
