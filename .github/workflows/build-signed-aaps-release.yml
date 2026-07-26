@@ -91,8 +91,13 @@ jobs:
 
           set +e
           ./gradlew :app:assembleFullRelease \
-            --no-daemon \
             --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss1024m" \
+            -Dkotlin.daemon.jvm.options="-Xmx2g" \
+            -Dkotlin.compiler.execution.strategy="in-process" \
+            -Dorg.gradle.daemon=true \
+            -Dorg.gradle.workers.max=4 \
+            -Dorg.gradle.caching=true \
             "-Pandroid.injected.signing.store.file=${keystore_path}" \
             "-Pandroid.injected.signing.store.password=${store_password}" \
             "-Pandroid.injected.signing.key.alias=${key_alias}" \
