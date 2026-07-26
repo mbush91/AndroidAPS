@@ -154,6 +154,11 @@ import sys
     run_number,
     source_branch,
 ) = sys.argv[1:]
+is_dev_version = (
+    ("-" in version or any(character.isalpha() for character in version))
+    and "-beta" not in version
+    and "-rc" not in version
+)
 report = {
     "status": "success",
     "source_branch": source_branch,
@@ -169,7 +174,7 @@ report = {
         "signature_valid": True,
         "signer_matches_configured_keystore": True,
         "application_id_valid": True,
-        "master_version_is_not_dev": source_branch != "master" or not any(character.isalpha() for character in version) and "-" not in version,
+        "master_version_is_not_dev": source_branch != "master" or not is_dev_version,
     },
 }
 with open(report_path, "w", encoding="utf-8") as stream:
