@@ -64,7 +64,7 @@ class EversensePluginTest : TestBaseWithProfile() {
         assertThat(result.single().timestamp).isEqualTo(1_700_000_000_000L)
         assertThat(result.single().value).isEqualTo(123.0)
         assertThat(result.single().trendArrow).isEqualTo(TrendArrow.NONE)
-        assertThat(result.single().sourceSensor).isEqualTo(SourceSensor.EVERSENSE)
+        assertThat(result.single().sourceSensor).isEqualTo(SourceSensor.BYOESA)
     }
 
     @Test

@@ -173,7 +173,7 @@ class EversensePlugin @Inject constructor(
                             noise = null,
                             raw = null,
                             trendArrow = TrendArrow.fromString(reading.getString(KEY_TREND_ARROW)),
-                            sourceSensor = SourceSensor.EVERSENSE,
+                            sourceSensor = SourceSensor.BYOESA,
                         )
                     )
                 }

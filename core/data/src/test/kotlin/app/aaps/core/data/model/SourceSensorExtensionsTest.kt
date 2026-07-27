@@ -40,6 +40,11 @@ class SourceSensorExtensionsTest {
     }
 
     @Test
+    fun `BYOESA supports advanced filtering`() {
+        assertThat(SourceSensor.BYOESA.advancedFilteringSupported()).isTrue()
+    }
+
+    @Test
     fun `libre 1 sensors do not support advanced filtering`() {
         assertThat(SourceSensor.LIBRE_1_OTHER.advancedFilteringSupported()).isFalse()
         assertThat(SourceSensor.LIBRE_1_NET.advancedFilteringSupported()).isFalse()
