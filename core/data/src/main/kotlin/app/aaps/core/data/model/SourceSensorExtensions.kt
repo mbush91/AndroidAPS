@@ -13,6 +13,6 @@ private val ADVANCED_FILTERING_SENSORS = setOf(
     SourceSensor.LIBRE_2_NATIVE,
     SourceSensor.LIBRE_3,
     SourceSensor.SYAI_TAG,
-    SourceSensor.BYOESA,
+    SourceSensor.EVERSENSE,
     SourceSensor.RANDOM,
 )
