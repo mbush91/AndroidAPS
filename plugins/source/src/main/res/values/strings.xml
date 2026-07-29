@@ -52,8 +52,9 @@
     <!-- Permission rationales -->
     <string name="permission_dexcom_title">Dexcom CGM</string>
     <string name="permission_dexcom_description">Application needs permission to receive CGM data from Dexcom app</string>
-    <string name="permission_byoesa_title">BYOESA</string>
-    <string name="permission_byoesa_description">AAPS needs permission to receive glucose data from BYOESA.</string>
+    <string name="permission_byoesa_title">Receive Eversense glucose readings</string>
+    <string name="permission_byoesa_description">AndroidAPS needs permission to receive glucose readings from your modified Eversense 365 app. This does not provide access to Bluetooth, location, files, or other phone data.</string>
+    <string name="permission_byoesa_allow">Continue</string>
     <string name="permission_notification_listener_title">Notification Access</string>
     <string name="permission_notification_listener_description">Required to read glucose values from CGM app notifications</string>
 
