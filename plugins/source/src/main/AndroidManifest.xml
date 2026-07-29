@@ -5,7 +5,7 @@
     <uses-permission android:name="com.byoesa.eversense365.EXTERNAL_PERMISSION" />
 
     <queries>
-        <package android:name="com.byoesa.eversense365" />
+        <package android:name="com.senseonics.eversense365.us" />
     </queries>
 
     <application>
