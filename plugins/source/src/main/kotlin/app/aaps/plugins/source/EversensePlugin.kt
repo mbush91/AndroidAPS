@@ -136,7 +136,7 @@ class EversensePlugin @Inject constructor(
 
     companion object {
 
-        const val PACKAGE_NAME = "com.byoesa.eversense365"
+        const val PACKAGE_NAME = "com.senseonics.eversense365.us"
         const val ACTION = "com.byoesa.eversense365.EXTERNAL_BROADCAST"
         const val PERMISSION = "com.byoesa.eversense365.EXTERNAL_PERMISSION"
         const val CONTRACT_VERSION = 1
