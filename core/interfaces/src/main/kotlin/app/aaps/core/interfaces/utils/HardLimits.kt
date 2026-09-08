@@ -7,12 +7,12 @@ interface HardLimits {
 
         // Very Hard Limits Ranges
         // First value is the Lowest and second value is the Highest a Limit can define
-        val LIMIT_MIN_BG = doubleArrayOf(80.0, 180.0)
+        // 10.0 mmol/L rounds to 180.2 mg/dL in the SMB profile-low path.\n        val LIMIT_MIN_BG = doubleArrayOf(80.0, 180.2)
         val LIMIT_MAX_BG = doubleArrayOf(90.0, 200.0)
         val LIMIT_TARGET_BG = doubleArrayOf(80.0, 200.0)
 
         // Very Hard Limits Ranges for Temp Targets
-        val LIMIT_TEMP_MIN_BG = doubleArrayOf(72.0, 180.0)
+        // 10.0 mmol/L converts to 180.16 mg/dL before temp-target validation.\n        val LIMIT_TEMP_MIN_BG = doubleArrayOf(72.0, 180.16)
         val LIMIT_TEMP_MAX_BG = doubleArrayOf(72.0, 270.0)
         val LIMIT_TEMP_TARGET_BG = doubleArrayOf(72.0, 200.0)
         val MIN_DIA = doubleArrayOf(5.0, 5.0, 5.0, 5.0, 5.0)

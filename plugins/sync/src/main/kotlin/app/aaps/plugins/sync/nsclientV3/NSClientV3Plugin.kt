@@ -601,11 +601,14 @@ class NSClientV3Plugin @Inject constructor(
     // See [NsClient.pairedClientCountFlow]. Master-side count of ACTIVE paired clients (pending offers
     // excluded), driven off the same roster the Authorized clients screen shows. Always 0 on a client.
     // Seeded with the synchronous current count so the SetupWizard status line renders correctly on first frame.
-    override val pairedClientCountFlow: StateFlow<Int> =
+    // Defer the synchronous prefs/JSON seed until the UI first needs this flow instead
+    // of doing the work while Dagger constructs plugins on the main thread at startup.
+    override val pairedClientCountFlow: StateFlow<Int> by lazy {
         if (config.AAPSCLIENT) MutableStateFlow(0).asStateFlow()
         else authorizedClientsRepository.observe()
             .map { list -> list.count { it.state == ClientState.Active } }
             .stateIn(reachableScope, SharingStarted.WhileSubscribed(5000), authorizedClientsRepository.current(dateUtil.now()).count { it.state == ClientState.Active })
+    }
 
     private fun setClient() {
         if (nsAndroidClient == null)

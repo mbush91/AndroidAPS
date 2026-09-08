@@ -29,17 +29,20 @@ class AutosensDataStoreObject : AutosensDataStore {
     // once referenceTime != null all bucketed data should be (x * 5min) from referenceTime
     var referenceTime: Long = -1
 
+    // All mutable calculation state uses the same lock. The old @Synchronized accessors
+    // locked this object while compound operations locked dataLock, so they did not
+    // actually exclude one another.
     override var bgReadings: List<GV> = listOf() // newest at index 0
-        @Synchronized set
-        @Synchronized get
+        get() = synchronized(dataLock) { field }
+        set(value) { synchronized(dataLock) { field = value } }
 
     override var autosensDataTable = LongSparseArray<AutosensData>() // oldest at index 0
-        @Synchronized set
-        @Synchronized get
+        get() = synchronized(dataLock) { field }
+        set(value) { synchronized(dataLock) { field = value } }
 
     override var bucketedData: MutableList<InMemoryGlucoseValue>? = null
-        @Synchronized set
-        @Synchronized get
+        get() = synchronized(dataLock) { field }
+        set(value) { synchronized(dataLock) { field = value } }
 
     override fun clone(): AutosensDataStore =
         AutosensDataStoreObject().also {
@@ -54,11 +57,11 @@ class AutosensDataStoreObject : AutosensDataStore {
     override fun getBgReadingsDataTableCopy(): List<GV> = synchronized(dataLock) { bgReadings.toMutableList() }
 
     override fun reset() {
-        synchronized(autosensDataTable) { autosensDataTable = LongSparseArray() }
+        synchronized(dataLock) { autosensDataTable = LongSparseArray() }
     }
 
     override fun newHistoryData(time: Long, aapsLogger: AAPSLogger, dateUtil: DateUtil) {
-        synchronized(autosensDataTable) {
+        synchronized(dataLock) {
             for (index in autosensDataTable.size() - 1 downTo 0) {
                 if (autosensDataTable.keyAt(index) > time) {
                     aapsLogger.debug(LTag.AUTOSENS) { "Removing from autosensDataTable: ${dateUtil.dateAndTimeAndSecondsString(autosensDataTable.keyAt(index))}" }
