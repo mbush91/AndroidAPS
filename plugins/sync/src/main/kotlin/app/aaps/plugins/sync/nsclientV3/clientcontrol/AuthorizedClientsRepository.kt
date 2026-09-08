@@ -10,6 +10,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,6 +47,8 @@ class AuthorizedClientsRepository @Inject constructor(
     }
 
     private val json = Json { ignoreUnknownKeys = true }
+    // Avoid reified serializer lookup through kotlin-reflect on cold-start and command paths.
+    private val listSerializer = ListSerializer(AuthorizedClient.serializer())
     private val lock = Any()
 
     /** Current list with expired pending entries pruned. Side-effects prefs if any were pruned. */
@@ -164,10 +167,10 @@ class AuthorizedClientsRepository @Inject constructor(
     }
 
     private fun decode(raw: String = preferences.get(StringNonKey.NsClientControlAuthorizedClients)): List<AuthorizedClient> =
-        runCatching { json.decodeFromString<List<AuthorizedClient>>(raw) }.getOrNull() ?: emptyList()
+        runCatching { json.decodeFromString(listSerializer, raw) }.getOrNull() ?: emptyList()
 
     private fun write(list: List<AuthorizedClient>) {
-        preferences.put(StringNonKey.NsClientControlAuthorizedClients, json.encodeToString(list))
+        preferences.put(StringNonKey.NsClientControlAuthorizedClients, json.encodeToString(listSerializer, list))
     }
 
     data class PendingResult(val entry: AuthorizedClient, val secretHex: String)
