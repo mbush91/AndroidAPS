@@ -415,6 +415,8 @@ class MainViewModel @Inject constructor(
         val guid = entry.guid()
 
         val globalReason = when {
+            // activeAPS/profile state is not ready until app initialization completes.
+            !config.appInitialized                   -> rh.gs(app.aaps.core.ui.R.string.initializing)
             lastBG == null                           -> rh.gs(app.aaps.core.ui.R.string.wizard_no_actual_bg)
             profile == null                          -> rh.gs(app.aaps.core.ui.R.string.noprofile)
             !pump.isInitialized()                    -> rh.gs(app.aaps.core.ui.R.string.pump_not_initialized_profile_not_set)

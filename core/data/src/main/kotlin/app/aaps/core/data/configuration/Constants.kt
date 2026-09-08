@@ -28,7 +28,8 @@ object Constants {
 
     // Temp targets
     const val MIN_TT_MGDL = 72.0
-    const val MAX_TT_MGDL = 180.0
+    // 10.0 mmol/L converts to 180.1559 mg/dL; allow the full documented mmol/L range.
+    const val MAX_TT_MGDL = 180.16
     const val MIN_TT_MMOL = 4.0
     const val MAX_TT_MMOL = 10.0
 
