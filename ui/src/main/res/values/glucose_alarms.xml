@@ -14,4 +14,5 @@
     <string name="glucose_test_notification">Test notification</string>
     <string name="glucose_test_phone">Test phone alarm</string>
     <string name="glucose_stop_test">Stop test</string>
+    <string name="glucose_app_notification_settings">App notification settings</string>
 </resources>

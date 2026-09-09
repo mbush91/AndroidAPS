@@ -99,7 +99,7 @@ class GlucoseAlarmEvaluatorTest {
 
     @Test fun `disabled rule resets only its own state`() {
         val active = E.evaluate(low, E.State(), reading(60.0), now).state
-        assertThat(E.evaluate(low.copy(enabled = false), active, reading(60.0), now).state).isEqualTo(E.State())
+        assertThat(E.evaluate(low.copy(enabled = false), active, reading(60.0), now).state).isEqualTo(E.State(episodeId = active.episodeId))
         assertThat(E.evaluate(falling, E.State(), reading(60.0, -3.0), now).alert).isTrue()
     }
 
@@ -108,4 +108,18 @@ class GlucoseAlarmEvaluatorTest {
             assertThat(E.evaluate(rule, E.State(), reading(60.0, -3.0), now).alert).isFalse()
         }
     }
+    @Test fun `rearming on the same glucose timestamp creates a new episode`() {
+        val active = E.evaluate(low, E.State(), reading(60.0), now).state
+        val recovered = E.evaluate(low, active, reading(80.0), now).state
+        val next = E.evaluate(low, recovered, reading(60.0), now).state
+        assertThat(next.episodeId).isGreaterThan(active.episodeId)
+        assertThat(E.acknowledge(next, active.episodeId)).isEqualTo(next)
+    }
+
+    @Test fun `numeric overflow in trend cannot trigger the falling rule`() {
+        val value = E.reading(listOf(sample(60.0), sample(Double.MAX_VALUE, 5.0)), now)
+        assertThat(value?.rate).isNull()
+        assertThat(E.evaluate(falling, E.State(), value, now).alert).isFalse()
+    }
+
 }

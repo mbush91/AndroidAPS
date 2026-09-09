@@ -135,7 +135,7 @@ class PrepareGraphDataWorkerTest : TestBaseWithProfile() {
         whenever(workerParameters.inputData).thenReturn(workDataOf(WorkflowChainData.JOB_KEY to app.aaps.core.interfaces.workflow.CalculationWorkflow.MAIN_CALCULATION))
         whenever(workflowChainData.prepareFor(anyOrNull(), any())).thenReturn(buildData(bgDataReload = true, emitFinalProgress = false))
         worker().doWorkAndLog()
-        verify(glucoseAlarms).update(emptyList())
+        verify(glucoseAlarms).update(emptyList(), -1L)
     }
 
     @Test

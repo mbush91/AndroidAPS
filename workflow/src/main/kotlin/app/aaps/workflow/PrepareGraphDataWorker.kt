@@ -123,7 +123,10 @@ class PrepareGraphDataWorker @AssistedInject constructor(
             data.iobCobCalculator.ads.loadBgData(data.end)
             data.iobCobCalculator.ads.smoothData()
             if (inputData.getString(WorkflowChainData.JOB_KEY) == CalculationWorkflow.MAIN_CALCULATION) {
-                glucoseAlarms.update(data.iobCobCalculator.ads.getBucketedDataTableCopy().orEmpty())
+                glucoseAlarms.update(
+                    data.iobCobCalculator.ads.getBucketedDataTableCopy().orEmpty(),
+                    inputData.getLong(WorkflowChainData.GEN_KEY, -1L)
+                )
             }
             rxBus.send(EventBucketedDataCreated())
             data.iobCobCalculator.clearCache()

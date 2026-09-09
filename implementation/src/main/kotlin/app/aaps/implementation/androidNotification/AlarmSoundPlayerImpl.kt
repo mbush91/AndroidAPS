@@ -48,7 +48,7 @@ class AlarmSoundPlayerImpl @Inject constructor(
     private var currentAlarmStream: Boolean? = null
     private var currentRampVolume: Boolean? = null
     private data class Request(val sound: Int, val postedAt: Long, val alarmStream: Boolean?, val rampVolume: Boolean?)
-    private val requests = mutableMapOf<String, Request>()
+    private val requests = app.aaps.core.data.notifications.AlarmPlaybackQueue<Request>(AlarmSoundPlayer.OWNER_FULLSCREEN)
 
     // Stable reference so a deferred start can be cancelled by doStop() during the channel-sound guard.
     private val startRunnable = Runnable { startMediaPlayer() }
@@ -56,7 +56,7 @@ class AlarmSoundPlayerImpl @Inject constructor(
     override fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long, alarmStream: Boolean?, rampVolume: Boolean?) {
         if (soundRes == 0) return
         handler.post {
-            requests[ownerTag] = Request(soundRes, postedAtElapsedRealtime, alarmStream, rampVolume)
+            requests.put(ownerTag, Request(soundRes, postedAtElapsedRealtime, alarmStream, rampVolume))
             selectOwner()
         }
     }
@@ -70,10 +70,9 @@ class AlarmSoundPlayerImpl @Inject constructor(
     }
 
     private fun selectOwner() {
-        val owner = if (requests.containsKey(AlarmSoundPlayer.OWNER_FULLSCREEN)) AlarmSoundPlayer.OWNER_FULLSCREEN
-            else requests.keys.firstOrNull()
-        if (owner == null) { doStop(); return }
-        val request = requests.getValue(owner)
+        val selected = requests.selected()
+        if (selected == null) { doStop(); return }
+        val (owner, request) = selected
         if (currentOwner == owner && currentSound == request.sound && currentAlarmStream == request.alarmStream && currentRampVolume == request.rampVolume) return
         doPlay(request.sound, owner, request.postedAt, request.alarmStream, request.rampVolume)
     }

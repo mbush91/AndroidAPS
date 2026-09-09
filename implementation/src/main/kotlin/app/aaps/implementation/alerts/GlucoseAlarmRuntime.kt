@@ -48,7 +48,7 @@ class GlucoseAlarmRuntime @Inject constructor(
     private val commands = Channel<() -> Unit>(Channel.UNLIMITED)
     private var started = false
     private var samples: List<InMemoryGlucoseValue> = emptyList()
-    private var newestTimestamp = 0L
+    private var lastGeneration = Long.MIN_VALUE
     private var low = load("low")
     private var falling = load("falling")
     private var displayed: Pair<String, Boolean>? = null
@@ -83,16 +83,13 @@ class GlucoseAlarmRuntime @Inject constructor(
         }
     }
 
-    override fun update(data: List<InMemoryGlucoseValue>) {
+    override fun update(data: List<InMemoryGlucoseValue>, generation: Long) {
         val snapshot = data.map { it.copy() }
         commands.trySend {
-            val timestamp = snapshot.firstOrNull()?.timestamp ?: newestTimestamp
-            // Discard out-of-order results, but allow invalidations/calibration of the current reading.
-            if (timestamp > dateUtil.now()) {
-                samples = emptyList()
-                evaluate()
-            } else if (timestamp >= newestTimestamp) {
-                newestTimestamp = timestamp
+            // A newer pipeline generation can legitimately remove/invalidate the newest reading.
+            // Order by workflow generation, not glucose timestamp, so those invalidations take effect.
+            if (generation >= lastGeneration) {
+                lastGeneration = generation
                 samples = snapshot
                 evaluate()
             }

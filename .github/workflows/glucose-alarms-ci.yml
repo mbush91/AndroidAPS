@@ -29,7 +29,7 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - name: Test evaluator
-        run: ./gradlew :core:data:test --tests '*GlucoseAlarmEvaluatorTest' --stacktrace
+        run: ./gradlew :core:data:test --tests '*GlucoseAlarmEvaluatorTest' --tests '*AlarmPlaybackQueueTest' --stacktrace
       - name: Test shared delta behavior and live pipeline isolation
         run: ./gradlew :plugins:aps:testFullDebugUnitTest --tests '*DeltaCalculatorTest' :workflow:testFullDebugUnitTest --tests '*PrepareGraphDataWorkerTest' --stacktrace
       - name: Compile app integration and dependency injection

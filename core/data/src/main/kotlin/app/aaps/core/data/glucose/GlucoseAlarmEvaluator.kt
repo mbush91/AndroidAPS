@@ -23,7 +23,7 @@ object GlucoseAlarmEvaluator {
             !it.filledGap && it.recalculated.isFinite() && it.recalculated > 39.0
         } && recent.zipWithNext().all { (a, b) -> a.timestamp - b.timestamp in 1..MAX_GAP_MS } &&
             recent.any { latest.timestamp - it.timestamp in 150_000L..1_050_000L }
-        val rate = if (trustworthy) GlucoseDeltaCalculator.calculateDeltas(recent).shortAvgDelta / 5.0 else null
+        val rate = if (trustworthy) (GlucoseDeltaCalculator.calculateDeltas(recent).shortAvgDelta / 5.0).takeIf { it.isFinite() } else null
         return Reading(latest.timestamp, latest.recalculated, rate)
     }
 
@@ -33,17 +33,17 @@ object GlucoseAlarmEvaluator {
         else state.copy(dismissed = true)
 
     fun evaluate(rule: Rule, previous: State, reading: Reading?, now: Long): Result {
-        if (!rule.enabled) return Result(State(), false)
+        if (!rule.enabled) return Result(State(episodeId = previous.episodeId), false)
         if (!rule.threshold.isFinite() || rule.threshold !in 40.0..250.0 ||
             rule.fallRate?.let { !it.isFinite() || it <= 0 } == true) return Result(previous, false)
         // Unknown data silences delivery without falsely declaring recovery or forgetting dismissal.
         if (reading == null) return Result(previous, false)
         val recovered = reading.glucose >= rule.threshold + RECOVERY_MARGIN ||
             (rule.fallRate != null && reading.rate?.let { it >= -rule.fallRate + 0.2 } == true)
-        if (recovered) return Result(State(snoozeUntil = previous.snoozeUntil), false)
+        if (recovered) return Result(State(snoozeUntil = previous.snoozeUntil, episodeId = previous.episodeId), false)
         val matches = reading.glucose < rule.threshold &&
             (rule.fallRate == null || reading.rate?.let { it <= -rule.fallRate } == true)
-        val state = previous.copy(active = previous.active || matches, episodeId = if (!previous.active && matches) reading.timestamp else previous.episodeId)
+        val state = previous.copy(active = previous.active || matches, episodeId = if (!previous.active && matches) maxOf(now, previous.episodeId + 1) else previous.episodeId)
         val knownRate = rule.fallRate == null || reading.rate != null
         return Result(state, state.active && knownRate && !state.dismissed && now >= state.snoozeUntil)
     }

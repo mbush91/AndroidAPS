@@ -66,6 +66,7 @@ fun GlucoseAlarmSetupScreen(onBack: () -> Unit, viewModel: GlucoseAlarmSetupView
         Text(stringResource(R.string.glucose_setup_explanation))
         Text(stringResource(if (enabled) R.string.glucose_notifications_enabled else R.string.glucose_notifications_blocked))
         Text(stringResource(R.string.glucose_alarm_volume, volume, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)))
+        if (!enabled) Button(onClick = { open(Settings.ACTION_APP_NOTIFICATION_SETTINGS) }) { Text(stringResource(R.string.glucose_app_notification_settings)) }
         for ((channel, label) in listOf(
             "aaps_glucose_notifications" to R.string.glucose_notification_settings,
             "aaps_glucose_phone_alarms" to R.string.glucose_phone_settings
