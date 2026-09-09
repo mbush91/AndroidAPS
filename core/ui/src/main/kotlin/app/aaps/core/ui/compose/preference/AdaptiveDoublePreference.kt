@@ -55,7 +55,10 @@ fun AdaptiveDoublePreferenceItem(
     if (!visibility.visible || (preferences.simpleMode && doubleKey.calculatedBySM)) return
 
     val state = rememberPreferenceDoubleState(doubleKey)
-    val value = state.value
+    val glucoseRate = doubleKey.unitType == app.aaps.core.keys.UnitType.GLUCOSE_RATE
+    val profileUtil = if (glucoseRate) app.aaps.core.ui.compose.LocalProfileUtil.current else null
+    val factor = profileUtil?.fromMgdlToUnits(1.0) ?: 1.0
+    val value = state.value * factor
     val theme = LocalPreferenceTheme.current
 
     // Get formatting info from UnitType
@@ -66,7 +69,7 @@ fun AdaptiveDoublePreferenceItem(
 
     // Get unit label from UnitType (for dialog input suffix)
     val unitLabelResId = unitType.unitLabelResId()
-    val unitLabel = unitLabelResId?.let { stringResource(it) } ?: unit
+    val unitLabel = if (glucoseRate) "${profileUtil?.unitLabel}/min" else unitLabelResId?.let { stringResource(it) } ?: unit
 
     val valueFormat = if (decimalPlaces == 0) DecimalFormat("0") else DecimalFormat("0.${"0".repeat(decimalPlaces)}")
 
@@ -105,10 +108,10 @@ fun AdaptiveDoublePreferenceItem(
                 value = value,
                 onValueChange = { newValue ->
                     if (visibility.enabled) {
-                        state.value = newValue
+                        state.value = newValue / factor
                     }
                 },
-                valueRange = doubleKey.min..doubleKey.max,
+                valueRange = (doubleKey.min * factor)..(doubleKey.max * factor),
                 step = step,
                 showValue = true,
                 valueFormatResId = valueFormatResId,

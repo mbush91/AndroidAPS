@@ -148,6 +148,7 @@ class MainApp : Application(), HasAndroidInjector, Configuration.Provider {
     @Inject lateinit var dateUtil: DateUtil
     @Inject lateinit var uiInteraction: UiInteraction
     @Inject lateinit var processLifecycleListener: Provider<ProcessLifecycleListener>
+    @Inject lateinit var glucoseAlarms: app.aaps.core.interfaces.alerts.GlucoseAlarms
     @Inject lateinit var localAlertUtils: LocalAlertUtils
     @Inject lateinit var notificationManager: NotificationManager
     @Inject lateinit var rh: Provider<ResourceHelper>
@@ -249,6 +250,7 @@ class MainApp : Application(), HasAndroidInjector, Configuration.Provider {
 
                 // Standalone automation runtime (no longer a plugin). Loads definitions on all
                 // flavors; the processing loop + location service are master-only (gated internally).
+                glucoseAlarms.start()
                 automationRuntime.start()
 
                 // Data migrations (DB I/O)

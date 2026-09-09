@@ -45,22 +45,44 @@ class AlarmSoundPlayerImpl @Inject constructor(
     @RawRes private var currentSound: Int = 0
     private var currentOwner: String? = null
     private var currentVolumeLevel = 0
+    private var currentAlarmStream: Boolean? = null
+    private var currentRampVolume: Boolean? = null
+    private data class Request(val sound: Int, val postedAt: Long, val alarmStream: Boolean?, val rampVolume: Boolean?)
+    private val requests = mutableMapOf<String, Request>()
 
     // Stable reference so a deferred start can be cancelled by doStop() during the channel-sound guard.
     private val startRunnable = Runnable { startMediaPlayer() }
 
-    override fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long) {
+    override fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long, alarmStream: Boolean?, rampVolume: Boolean?) {
         if (soundRes == 0) return
-        handler.post { doPlay(soundRes, ownerTag, postedAtElapsedRealtime) }
+        handler.post {
+            requests[ownerTag] = Request(soundRes, postedAtElapsedRealtime, alarmStream, rampVolume)
+            selectOwner()
+        }
     }
 
     override fun stop(ownerTag: String) {
-        handler.post { if (currentOwner == ownerTag) doStop() }
+        handler.post {
+            requests.remove(ownerTag)
+            if (currentOwner == ownerTag) doStop()
+            selectOwner()
+        }
     }
 
-    private fun doPlay(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long) {
+    private fun selectOwner() {
+        val owner = if (requests.containsKey(AlarmSoundPlayer.OWNER_FULLSCREEN)) AlarmSoundPlayer.OWNER_FULLSCREEN
+            else requests.keys.firstOrNull()
+        if (owner == null) { doStop(); return }
+        val request = requests.getValue(owner)
+        if (currentOwner == owner && currentSound == request.sound && currentAlarmStream == request.alarmStream && currentRampVolume == request.rampVolume) return
+        doPlay(request.sound, owner, request.postedAt, request.alarmStream, request.rampVolume)
+    }
+
+    private fun doPlay(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long, alarmStream: Boolean?, rampVolume: Boolean?) {
         doStop()
         currentSound = soundRes
+        currentAlarmStream = alarmStream
+        currentRampVolume = rampVolume
         currentOwner = ownerTag
 
         // Only the full-screen path passes postedAt > 0 (it has an accompanying channel one-shot to
@@ -99,7 +121,7 @@ class AlarmSoundPlayerImpl @Inject constructor(
         val soundRes = currentSound
         if (soundRes == 0) return
 
-        val overrideDnd = preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
+        val overrideDnd = currentAlarmStream ?: preferences.get(BooleanKey.AlertOverrideDoNotDisturb)
         val audioAttrs = AudioAttributes.Builder()
             .setUsage(if (overrideDnd) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -120,7 +142,7 @@ class AlarmSoundPlayerImpl @Inject constructor(
             mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
             afd.close()
             mp.isLooping = true
-            if (preferences.get(BooleanKey.AlertIncreaseVolume)) {
+            if (currentRampVolume ?: preferences.get(BooleanKey.AlertIncreaseVolume)) {
                 currentVolumeLevel = 0
                 mp.setVolume(0f, 0f)
                 handler.postDelayed(volumeRamp, VOLUME_INCREASE_INITIAL_SILENT_TIME_MILLIS)

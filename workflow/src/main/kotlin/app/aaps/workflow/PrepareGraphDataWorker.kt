@@ -87,6 +87,7 @@ class PrepareGraphDataWorker @AssistedInject constructor(
     private val rxBus: RxBus,
     private val persistenceLayer: PersistenceLayer,
     private val activePlugin: ActivePlugin,
+    private val glucoseAlarms: app.aaps.core.interfaces.alerts.GlucoseAlarms,
     private val profileFunction: ProfileFunction,
     private val profileUtil: ProfileUtil,
     private val preferences: Preferences,
@@ -121,6 +122,9 @@ class PrepareGraphDataWorker @AssistedInject constructor(
         if (data.bgDataReload) {
             data.iobCobCalculator.ads.loadBgData(data.end)
             data.iobCobCalculator.ads.smoothData()
+            if (inputData.getString(WorkflowChainData.JOB_KEY) == CalculationWorkflow.MAIN_CALCULATION) {
+                glucoseAlarms.update(data.iobCobCalculator.ads.getBucketedDataTableCopy().orEmpty())
+            }
             rxBus.send(EventBucketedDataCreated())
             data.iobCobCalculator.clearCache()
         }

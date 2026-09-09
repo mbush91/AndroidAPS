@@ -466,4 +466,13 @@
     <!--    Appearance preferences-->
     <string name="prefs_range_title">Range for visualization</string>
 
+    <string name="glucose_alarms">Glucose alarms</string>
+    <string name="glucose_low_enabled">Below threshold</string>
+    <string name="glucose_falling_enabled">Below threshold and falling</string>
+    <string name="glucose_threshold">Glucose threshold</string>
+    <string name="glucose_phone_alarm">Use phone alarm sound</string>
+    <string name="glucose_phone_alarm_summary">Loop on the alarm volume stream until snoozed, dismissed, or recovered. Allow alarms in Android Do Not Disturb settings and check alarm volume.</string>
+    <string name="glucose_fall_rate">Falling at least (per minute)</string>
+    <string name="glucose_fall_rate_summary">Positive rate of decrease, using the short average delta. Requires recent readings without gaps.</string>
+    <string name="glucose_snooze_duration">Snooze duration</string>
 </resources>

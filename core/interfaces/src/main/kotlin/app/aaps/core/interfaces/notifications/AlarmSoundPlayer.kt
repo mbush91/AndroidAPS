@@ -32,7 +32,7 @@ interface AlarmSoundPlayer {
      *   auto-launch). Pass 0 (the default) when there is no accompanying channel sound — the
      *   duration probe is then skipped entirely.
      */
-    fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long = 0L)
+    fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long = 0L, alarmStream: Boolean? = null, rampVolume: Boolean? = null)
 
     /** Stop and release playback **only if** [ownerTag] is the current owner. No-op otherwise. */
     fun stop(ownerTag: String)

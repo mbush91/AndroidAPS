@@ -1,0 +1,44 @@
+name: Glucose alarms CI
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'core/data/**'
+      - 'core/interfaces/**'
+      - 'core/keys/**'
+      - 'core/ui/**'
+      - 'implementation/**'
+      - 'plugins/aps/**'
+      - 'ui/**'
+      - 'workflow/**'
+      - 'app/src/main/kotlin/app/aaps/MainApp.kt'
+      - '.github/workflows/glucose-alarms-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: glucose-alarms-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test evaluator
+        run: ./gradlew :core:data:test --tests '*GlucoseAlarmEvaluatorTest' --stacktrace
+      - name: Test shared delta behavior and live pipeline isolation
+        run: ./gradlew :plugins:aps:testFullDebugUnitTest --tests '*DeltaCalculatorTest' :workflow:testFullDebugUnitTest --tests '*PrepareGraphDataWorkerTest' --stacktrace
+      - name: Compile app integration and dependency injection
+        run: ./gradlew :app:compileFullDebugKotlin --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: glucose-alarm-test-reports
+          path: |
+            core/data/build/reports/tests/
+            plugins/aps/build/reports/tests/
+            workflow/build/reports/tests/

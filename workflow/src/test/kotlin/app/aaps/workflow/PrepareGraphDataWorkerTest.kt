@@ -33,6 +33,7 @@ import kotlin.test.assertIs
 
 class PrepareGraphDataWorkerTest : TestBaseWithProfile() {
 
+    @Mock lateinit var glucoseAlarms: app.aaps.core.interfaces.alerts.GlucoseAlarms
     @Mock lateinit var workflowChainData: WorkflowChainData
     @Mock lateinit var persistenceLayer: PersistenceLayer
     @Mock lateinit var profiler: Profiler
@@ -51,7 +52,7 @@ class PrepareGraphDataWorkerTest : TestBaseWithProfile() {
     private fun worker() =
         PrepareGraphDataWorker(
             context, workerParameters, aapsLogger, fabricPrivacy, workflowChainData, dateUtil, mockedRxBus, persistenceLayer,
-            activePlugin, profileFunction, profileUtil, preferences, config, profiler, rh, decimalFormatter,
+            activePlugin, glucoseAlarms, profileFunction, profileUtil, preferences, config, profiler, rh, decimalFormatter,
             processedDeviceStatusData, autosensDataProvider
         )
 
@@ -128,4 +129,22 @@ class PrepareGraphDataWorkerTest : TestBaseWithProfile() {
         // Terminal-only progress not emitted when emitFinalProgress = false
         verify(signals, org.mockito.kotlin.never()).emitProgress(eq(ProgressData.DRAW_FINAL), any())
     }
+    @Test
+    fun `only live reloads publish glucose alarm data`() = runTest {
+        stubSuspendCalls()
+        whenever(workerParameters.inputData).thenReturn(workDataOf(WorkflowChainData.JOB_KEY to app.aaps.core.interfaces.workflow.CalculationWorkflow.MAIN_CALCULATION))
+        whenever(workflowChainData.prepareFor(anyOrNull(), any())).thenReturn(buildData(bgDataReload = true, emitFinalProgress = false))
+        worker().doWorkAndLog()
+        verify(glucoseAlarms).update(emptyList())
+    }
+
+    @Test
+    fun `history browser never publishes glucose alarms`() = runTest {
+        stubSuspendCalls()
+        whenever(workerParameters.inputData).thenReturn(workDataOf(WorkflowChainData.JOB_KEY to app.aaps.core.interfaces.workflow.CalculationWorkflow.HISTORY_CALCULATION))
+        whenever(workflowChainData.prepareFor(anyOrNull(), any())).thenReturn(buildData(bgDataReload = true, emitFinalProgress = false))
+        worker().doWorkAndLog()
+        org.mockito.kotlin.verifyNoInteractions(glucoseAlarms)
+    }
+
 }

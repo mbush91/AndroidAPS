@@ -20,7 +20,8 @@ enum class UnitType {
     DOUBLE,
     DOUBLE_2,
     DOUBLE_3,
-    MGDL
+    MGDL,
+    GLUCOSE_RATE
 }
 
 /**
@@ -28,6 +29,7 @@ enum class UnitType {
  * Use with stringResource(resId, value) in Compose.
  */
 fun UnitType.valueResId(): Int? = when (this) {
+    UnitType.GLUCOSE_RATE -> null
     UnitType.NONE         -> null
     UnitType.GRAMS        -> R.string.units_format_grams
     UnitType.MIN          -> R.string.units_format_min
@@ -50,6 +52,7 @@ fun UnitType.valueResId(): Int? = when (this) {
  * Use with stringResource(resId, value, min, max) in Compose.
  */
 fun UnitType.rangeResId(): Int? = when (this) {
+    UnitType.GLUCOSE_RATE -> null
     UnitType.NONE         -> null
     UnitType.GRAMS        -> R.string.units_format_grams_range
     UnitType.MIN          -> R.string.units_format_min_range
@@ -72,7 +75,7 @@ fun UnitType.rangeResId(): Int? = when (this) {
  */
 fun UnitType.decimalPlaces(): Int = when (this) {
     UnitType.DOUBLE_3                                                               -> 3
-    UnitType.DOUBLE_2                                                               -> 2
+    UnitType.GLUCOSE_RATE, UnitType.DOUBLE_2                                         -> 2
     UnitType.INSULIN, UnitType.INSULIN_RATE, UnitType.DOUBLE, UnitType.HOURS_DOUBLE -> 1
     else                                                                            -> 0
 }
@@ -82,7 +85,7 @@ fun UnitType.decimalPlaces(): Int = when (this) {
  */
 fun UnitType.step(): Double = when (this) {
     UnitType.DOUBLE_3                                                               -> 0.001
-    UnitType.DOUBLE_2                                                               -> 0.01
+    UnitType.GLUCOSE_RATE, UnitType.DOUBLE_2                                         -> 0.01
     UnitType.INSULIN, UnitType.INSULIN_RATE, UnitType.DOUBLE, UnitType.HOURS_DOUBLE -> 0.1
     else                                                                            -> 1.0
 }
@@ -92,6 +95,7 @@ fun UnitType.step(): Double = when (this) {
  * Use with stringResource(resId) in Compose for slider value display.
  */
 fun UnitType.unitLabelResId(): Int? = when (this) {
+    UnitType.GLUCOSE_RATE                  -> null
     UnitType.NONE                          -> null
     UnitType.GRAMS                         -> R.string.units_grams
     UnitType.MIN                           -> R.string.units_min

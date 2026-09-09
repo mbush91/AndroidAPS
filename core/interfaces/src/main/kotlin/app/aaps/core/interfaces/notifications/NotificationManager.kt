@@ -45,11 +45,14 @@ interface NotificationManager {
         validityCheck: (() -> Boolean)? = null
     ): NotificationHandle
 
+    /** Device-local glucose alarm delivery, independent of global alert preferences. */
+    fun postGlucoseAlarm(text: String, phoneAlarm: Boolean, actions: List<NotificationAction>, onDismiss: () -> Unit, test: Boolean = false): NotificationHandle
+
     /** Dismiss all instances of this notification type. */
-    fun dismiss(id: NotificationId)
+    fun dismiss(id: NotificationId, userInitiated: Boolean = true)
 
     /** Dismiss a specific instance by handle. */
-    fun dismiss(handle: NotificationHandle)
+    fun dismiss(handle: NotificationHandle, userInitiated: Boolean = true)
 
     /**
      * Silence and dismiss every currently audible alarm. Used by the global "mute all" entry
