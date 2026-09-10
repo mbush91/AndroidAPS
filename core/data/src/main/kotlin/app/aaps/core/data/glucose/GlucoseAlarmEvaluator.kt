@@ -40,7 +40,7 @@ object GlucoseAlarmEvaluator {
         if (reading == null) return Result(previous, false)
         val recovered = reading.glucose >= rule.threshold + RECOVERY_MARGIN ||
             (rule.fallRate != null && reading.rate?.let { it >= -rule.fallRate + 0.2 } == true)
-        if (recovered) return Result(State(snoozeUntil = previous.snoozeUntil, episodeId = previous.episodeId), false)
+        if (recovered) return Result(State(episodeId = previous.episodeId), false)
         val matches = reading.glucose < rule.threshold &&
             (rule.fallRate == null || reading.rate?.let { it <= -rule.fallRate } == true)
         val state = previous.copy(active = previous.active || matches, episodeId = if (!previous.active && matches) maxOf(now, previous.episodeId + 1) else previous.episodeId)
