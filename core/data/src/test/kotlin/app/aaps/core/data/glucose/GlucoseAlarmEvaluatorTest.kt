@@ -117,7 +117,15 @@ class GlucoseAlarmEvaluatorTest {
     }
 
     @Test fun `numeric overflow in trend cannot trigger the falling rule`() {
-        val value = E.reading(listOf(sample(60.0), sample(Double.MAX_VALUE, 5.0)), now)
+        val value = E.reading(
+            listOf(
+                sample(60.0),
+                sample(Double.MAX_VALUE, 5.0),
+                sample(Double.MAX_VALUE, 10.0),
+                sample(Double.MAX_VALUE, 15.0)
+            ),
+            now
+        )
         assertThat(value?.rate).isNull()
         assertThat(E.evaluate(falling, E.State(), value, now).alert).isFalse()
     }
