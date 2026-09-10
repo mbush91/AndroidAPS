@@ -75,7 +75,7 @@ fun GlucoseAlarmSetupScreen(onBack: () -> Unit, viewModel: GlucoseAlarmSetupView
             Button(onClick = { open(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, channel) }) { Text(stringResource(label)) }
             if (blocked) Text(stringResource(R.string.glucose_channel_blocked), color = MaterialTheme.colorScheme.error)
         }
-        Button(onClick = { open(Settings.ACTION_ZEN_MODE_SETTINGS) }) { Text(stringResource(R.string.glucose_dnd_settings)) }
+        Button(onClick = { open(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS) }) { Text(stringResource(R.string.glucose_dnd_settings)) }
         Button(onClick = { open(Settings.ACTION_SOUND_SETTINGS) }) { Text(stringResource(R.string.glucose_sound_settings)) }
         Button(onClick = { viewModel.alarms.test(false) }) { Text(stringResource(R.string.glucose_test_notification)) }
         Button(onClick = { viewModel.alarms.test(true) }) { Text(stringResource(R.string.glucose_test_phone)) }
