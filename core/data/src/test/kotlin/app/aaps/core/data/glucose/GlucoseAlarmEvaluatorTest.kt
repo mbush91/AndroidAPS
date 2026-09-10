@@ -81,14 +81,15 @@ class GlucoseAlarmEvaluatorTest {
         assertThat(E.evaluate(low, active, reading(75.0), now).state.active).isFalse()
     }
 
-    @Test fun `snooze rechecks freshness and persists across recovery`() {
+    @Test fun `snooze rechecks freshness and clears on recovery`() {
         val active = E.evaluate(low, E.State(), reading(60.0), now).state
         val snoozed = E.acknowledge(active, active.episodeId, now + 60_000)
         assertThat(E.evaluate(low, snoozed, reading(60.0), now + 59_999).alert).isFalse()
         assertThat(E.evaluate(low, snoozed, reading(60.0), now + 60_000).alert).isTrue()
         assertThat(E.evaluate(low, snoozed, null, now + 60_000).alert).isFalse()
         val recovered = E.evaluate(low, snoozed, reading(80.0), now).state
-        assertThat(E.evaluate(low, recovered, reading(60.0), now + 1).alert).isFalse()
+        assertThat(recovered.snoozeUntil).isEqualTo(0L)
+        assertThat(E.evaluate(low, recovered, reading(60.0), now + 1).alert).isTrue()
     }
 
     @Test fun `old notification action cannot silence a later episode`() {
