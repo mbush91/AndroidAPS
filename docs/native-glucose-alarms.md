@@ -17,7 +17,7 @@ Readings older than seven minutes, future timestamps, gap-filled latest values, 
 
 Episodes rearm after glucose reaches X + 5 mg/dL; falling episodes also rearm when the rate rises to at least −Y + 0.2 mg/dL/min. Unknown data stops delivery without treating missing data as recovery. The existing missed-reading alarm remains independently configurable.
 
-Dismiss silences matching episodes until recovery. Snooze uses each matching rule's configured duration and requires fresh qualifying data before delivery resumes. Recovery during snooze does not cancel the snooze deadline. Episode IDs reject stale actions. Operational state is persisted locally and excluded from settings sync/export. A second unsnoozed rule can still alert. Both matching rules share one displayed notification and one sound.
+Dismiss silences matching episodes until recovery. Snooze uses each matching rule's configured duration and requires fresh qualifying data before delivery resumes. Recovery clears the snooze so a later low episode can alert immediately. Episode IDs reject stale actions. Operational state is persisted locally and excluded from settings sync/export. A second unsnoozed rule can still alert. Both matching rules share one displayed notification and one sound.
 
 ## Android delivery
 
