@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,10 @@ fun GlucoseAlarmSetupScreen(onBack: () -> Unit, viewModel: GlucoseAlarmSetupView
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     val enabled = remember(refresh) { manager.areNotificationsEnabled() }
+    val groupBlocked = remember(refresh) {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && manager.getNotificationChannelGroup("aaps_glucose_group")?.isBlocked == true
+    }
+    val glucoseNotificationsAvailable = enabled && !groupBlocked
     val volume = remember(refresh) { audio.getStreamVolume(AudioManager.STREAM_ALARM) }
     fun open(action: String, channel: String? = null) {
         val intent = Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -64,14 +69,16 @@ fun GlucoseAlarmSetupScreen(onBack: () -> Unit, viewModel: GlucoseAlarmSetupView
     ) {
         Text(stringResource(R.string.glucose_alarm_setup), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.glucose_setup_explanation))
-        Text(stringResource(if (enabled) R.string.glucose_notifications_enabled else R.string.glucose_notifications_blocked))
+        Text(stringResource(if (glucoseNotificationsAvailable) R.string.glucose_notifications_enabled else R.string.glucose_notifications_blocked))
         Text(stringResource(R.string.glucose_alarm_volume, volume, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)))
-        if (!enabled) Button(onClick = { open(Settings.ACTION_APP_NOTIFICATION_SETTINGS) }) { Text(stringResource(R.string.glucose_app_notification_settings)) }
+        if (!enabled || groupBlocked) Button(onClick = { open(Settings.ACTION_APP_NOTIFICATION_SETTINGS) }) { Text(stringResource(R.string.glucose_app_notification_settings)) }
         for ((channel, label) in listOf(
             "aaps_glucose_notifications" to R.string.glucose_notification_settings,
             "aaps_glucose_phone_alarms" to R.string.glucose_phone_settings
         )) {
-            val blocked = remember(refresh, channel) { manager.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE }
+            val blocked = remember(refresh, channel, enabled, groupBlocked) {
+                !enabled || groupBlocked || manager.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE
+            }
             Button(onClick = { open(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, channel) }) { Text(stringResource(label)) }
             if (blocked) Text(stringResource(R.string.glucose_channel_blocked), color = MaterialTheme.colorScheme.error)
         }
