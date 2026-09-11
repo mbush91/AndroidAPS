@@ -353,10 +353,7 @@ class NotificationManagerImpl @Inject constructor(
         val top = _notifications.value
             .filter { it.level == NotificationLevel.URGENT && it.soundRes != null && it.soundRes != 0 }
             .filter { n ->
-                if (n.id.category != NotificationCategory.GLUCOSE) true else {
-                    val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
-                    mgr.areNotificationsEnabled() && mgr.getNotificationChannel(GLUCOSE_PHONE_CHANNEL)?.importance != AndroidNotificationManager.IMPORTANCE_NONE
-                }
+                if (n.id.category != NotificationCategory.GLUCOSE) true else glucosePhoneChannelEnabled()
             }
             .maxWithOrNull(compareBy<AapsNotification> { it.id != NotificationId.GLUCOSE_ALARM_TEST }.thenBy { it.date })
         when {
@@ -376,6 +373,13 @@ class NotificationManagerImpl @Inject constructor(
             }
             // else: already playing the top alarm — leave the ramp running.
         }
+    }
+
+    private fun glucosePhoneChannelEnabled(): Boolean {
+        val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val channel = mgr.getNotificationChannel(GLUCOSE_PHONE_CHANNEL)
+        if (!mgr.areNotificationsEnabled() || channel == null || channel.importance == AndroidNotificationManager.IMPORTANCE_NONE) return false
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.P || channel.group == null || mgr.getNotificationChannelGroup(channel.group)?.isBlocked != true
     }
 
     private fun createGlucoseChannels(mgr: AndroidNotificationManager) {
