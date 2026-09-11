@@ -14,9 +14,15 @@ object GlucoseAlarmEvaluator {
     data class Reading(val timestamp: Long, val glucose: Double, val rate: Double?)
     data class Result(val state: State, val alert: Boolean)
 
-    fun reading(data: List<InMemoryGlucoseValue>, now: Long): Reading? {
+    /**
+     * Build an alarm reading from processed/bucketed glucose. Trend math intentionally uses the
+     * normalized bucket timestamps, while freshness uses [sourceTimestamp] when supplied so bucket
+     * alignment can neither reject a current CGM value as future nor make an old source value fresh.
+     */
+    fun reading(data: List<InMemoryGlucoseValue>, now: Long, sourceTimestamp: Long? = null): Reading? {
         val latest = data.firstOrNull() ?: return null
-        if (now - latest.timestamp !in 0..MAX_AGE_MS || latest.filledGap ||
+        val freshnessTimestamp = sourceTimestamp ?: latest.timestamp
+        if (now - freshnessTimestamp !in 0..MAX_AGE_MS || latest.filledGap ||
             !latest.recalculated.isFinite() || latest.recalculated <= 0.0) return null
         val recent = data.takeWhile { latest.timestamp - it.timestamp <= 1_050_000L }
         val trustworthy = recent.size >= 2 && recent.all {
@@ -24,7 +30,7 @@ object GlucoseAlarmEvaluator {
         } && recent.zipWithNext().all { (a, b) -> a.timestamp - b.timestamp in 1..MAX_GAP_MS } &&
             recent.any { latest.timestamp - it.timestamp in 150_000L..1_050_000L }
         val rate = if (trustworthy) (GlucoseDeltaCalculator.calculateDeltas(recent).shortAvgDelta / 5.0).takeIf { it.isFinite() } else null
-        return Reading(latest.timestamp, latest.recalculated, rate)
+        return Reading(freshnessTimestamp, latest.recalculated, rate)
     }
 
     fun acknowledge(state: State, episode: Long?, snoozeUntil: Long? = null): State =
