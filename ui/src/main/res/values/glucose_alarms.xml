@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="glucose_alarm_setup">Set up and test glucose alarms</string>
+    <string name="glucose_alarm_setup_summary">Notification categories, Do Not Disturb, alarm volume, and test buttons</string>
+    <string name="glucose_setup_explanation">Standard mode uses the glucose notification category. Phone alarm mode loops on the alarm volume stream, independently of ringer silence. For phone alarms, allow alarms in every Do Not Disturb or bedtime mode you use and set a nonzero alarm volume. Allow the glucose notification category through Do Not Disturb for standard alerts. Keep AAPS running with its persistent notification. Test with the screen locked and your usual silent and Do Not Disturb settings. Dismiss silences the current episode until recovery; Snooze allows it to ring again after the configured interval if current data still indicates an alarm.</string>
+    <string name="glucose_notifications_enabled">App notifications are enabled.</string>
+    <string name="glucose_notifications_blocked">App notifications are blocked. Enable notifications in Android settings.</string>
+    <string name="glucose_channel_blocked">This category is blocked.</string>
+    <string name="glucose_alarm_volume">Alarm volume: %1$d / %2$d</string>
+    <string name="glucose_notification_settings">Glucose notification category</string>
+    <string name="glucose_phone_settings">Glucose phone alarm category</string>
+    <string name="glucose_dnd_settings">Do Not Disturb settings</string>
+    <string name="glucose_sound_settings">Sound and alarm volume settings</string>
+    <string name="glucose_test_notification">Test notification</string>
+    <string name="glucose_test_phone">Test phone alarm</string>
+    <string name="glucose_stop_test">Stop test</string>
+    <string name="glucose_app_notification_settings">App notification settings</string>
+</resources>

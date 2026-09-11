@@ -17,6 +17,7 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AapsNotification
 import app.aaps.core.interfaces.notifications.AlarmSoundPlayer
+import app.aaps.core.interfaces.notifications.NotificationCategory
 import app.aaps.core.interfaces.notifications.NotificationAction
 import app.aaps.core.interfaces.notifications.NotificationHandle
 import app.aaps.core.interfaces.notifications.NotificationHolder
@@ -67,7 +68,14 @@ class NotificationManagerImpl @Inject constructor(
     private val dismissReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val ordinal = intent?.getIntExtra("alertID", -1) ?: -1
-            NotificationId.fromOrdinal(ordinal)?.let { dismiss(it) }
+            val id = NotificationId.fromOrdinal(ordinal) ?: return
+            val index = intent?.getIntExtra("actionIndex", -1) ?: -1
+            if (index >= 0) {
+                synchronized(this@NotificationManagerImpl) {
+                    val notification = _notifications.value.firstOrNull { it.id == id } ?: return
+                    notification.actions.getOrNull(index)?.action?.invoke()
+                }
+            } else dismiss(id)
         }
     }
 
@@ -86,6 +94,7 @@ class NotificationManagerImpl @Inject constructor(
     @Synchronized
     override fun cleanUp() {
         removeExpired()
+        refreshAlarmSound()
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -93,6 +102,7 @@ class NotificationManagerImpl @Inject constructor(
         val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
         val channel = NotificationChannel(NotificationManager.CHANNEL_ID, NotificationManager.CHANNEL_ID, AndroidNotificationManager.IMPORTANCE_HIGH)
         mgr.createNotificationChannel(channel)
+        createGlucoseChannels(mgr)
 
         // Register dismiss receiver for system notification delete intents
         val filter = IntentFilter(NotificationManager.DISMISS_ACTION)
@@ -139,6 +149,15 @@ class NotificationManagerImpl @Inject constructor(
         )
     }
 
+    @Synchronized
+    override fun postGlucoseAlarm(text: String, phoneAlarm: Boolean, actions: List<NotificationAction>, onDismiss: () -> Unit, test: Boolean): NotificationHandle =
+        postInternal(
+            id = if (test) NotificationId.GLUCOSE_ALARM_TEST else NotificationId.GLUCOSE_ALARM,
+            text = text, level = NotificationLevel.URGENT, date = System.currentTimeMillis(), validTo = 0L,
+            soundRes = if (phoneAlarm) app.aaps.core.ui.R.raw.urgentalarm else null,
+            actions = actions, validityCheck = null, onDismiss = onDismiss
+        )
+
     private fun postInternal(
         id: NotificationId,
         text: String,
@@ -147,7 +166,8 @@ class NotificationManagerImpl @Inject constructor(
         validTo: Long,
         @RawRes soundRes: Int?,
         actions: List<NotificationAction>,
-        validityCheck: (() -> Boolean)?
+        validityCheck: (() -> Boolean)?,
+        onDismiss: (() -> Unit)? = null
     ): NotificationHandle {
         // Clean up expired notifications piggyback on writes
         removeExpired()
@@ -161,7 +181,7 @@ class NotificationManagerImpl @Inject constructor(
             instanceKey = id.ordinal
             // Cancel just the replaced notification's own sound — not any other concurrent alarms.
             current.filter { it.id == id }.forEach { old ->
-                cancelSilentAlarmNotification(old)
+                if (id.category != NotificationCategory.GLUCOSE || (old.soundRes == null) != (soundRes == null)) cancelSilentAlarmNotification(old)
             }
             current.removeAll { it.id == id }
         }
@@ -175,7 +195,8 @@ class NotificationManagerImpl @Inject constructor(
             validTo = validTo,
             soundRes = soundRes,
             actions = actions,
-            validityCheck = validityCheck
+            validityCheck = validityCheck,
+            onDismiss = onDismiss
         )
 
         current.add(notification)
@@ -186,7 +207,9 @@ class NotificationManagerImpl @Inject constructor(
         // channel sound); the ramping audio is owned by AlarmSoundPlayer and driven by
         // refreshAlarmSound() below so concurrent URGENT alarms hand off correctly. Sound is gated
         // on URGENT — a soundRes on a lower level is intentionally ignored (only the alarm tier rings).
-        if (level == NotificationLevel.URGENT && soundRes != null && soundRes != 0) {
+        if (id.category == NotificationCategory.GLUCOSE) {
+            raiseGlucoseNotification(notification)
+        } else if (level == NotificationLevel.URGENT && soundRes != null && soundRes != 0) {
             alarmNotificationManager.postSilentAlarmNotification(
                 notificationKey = instanceKey,
                 title = rh.gs(app.aaps.core.ui.R.string.urgent_alarm),
@@ -226,7 +249,10 @@ class NotificationManagerImpl @Inject constructor(
     }
 
     @Synchronized
-    override fun dismiss(id: NotificationId) {
+    override fun dismiss(id: NotificationId, userInitiated: Boolean) {
+        if (id.category == NotificationCategory.GLUCOSE) {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager).cancel(id.ordinal)
+        }
         val current = _notifications.value
         val dismissed = current.filter { it.id == id }
         val filtered = current.filter { it.id != id }
@@ -235,13 +261,14 @@ class NotificationManagerImpl @Inject constructor(
                 cancelSilentAlarmNotification(n)
             }
             _notifications.value = filtered
+            if (userInitiated) dismissed.forEach { it.onDismiss?.invoke() }
             refreshAlarmSound()
             aapsLogger.debug(LTag.NOTIFICATION, "Notification dismissed: ${id.name}")
         }
     }
 
     @Synchronized
-    override fun dismiss(handle: NotificationHandle) {
+    override fun dismiss(handle: NotificationHandle, userInitiated: Boolean) {
         val current = _notifications.value
         val dismissed = current.filter { it.instanceKey == handle.instanceKey }
         val filtered = current.filter { it.instanceKey != handle.instanceKey }
@@ -250,6 +277,7 @@ class NotificationManagerImpl @Inject constructor(
                 cancelSilentAlarmNotification(n)
             }
             _notifications.value = filtered
+            if (userInitiated) dismissed.forEach { it.onDismiss?.invoke() }
             refreshAlarmSound()
             aapsLogger.debug(LTag.NOTIFICATION, "Notification dismissed by handle: ${handle.instanceKey}")
         }
@@ -270,7 +298,7 @@ class NotificationManagerImpl @Inject constructor(
         val current = _notifications.value
         val audible = current.filter { it.level == NotificationLevel.URGENT && it.soundRes != null && it.soundRes != 0 }
         if (audible.isNotEmpty()) {
-            audible.forEach { cancelSilentAlarmNotification(it) }
+            audible.forEach { cancelSilentAlarmNotification(it); it.onDismiss?.invoke() }
             _notifications.value = current - audible.toSet()
         }
         refreshAlarmSound()
@@ -307,7 +335,9 @@ class NotificationManagerImpl @Inject constructor(
      * audio is (re)evaluated separately by [refreshAlarmSound] after the registry has changed.
      */
     private fun cancelSilentAlarmNotification(n: AapsNotification) {
-        if (n.soundRes != null) alarmNotificationManager.cancelSoundAlarm(n.instanceKey)
+        if (n.id.category == NotificationCategory.GLUCOSE) {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager).cancel(n.instanceKey)
+        } else if (n.soundRes != null) alarmNotificationManager.cancelSoundAlarm(n.instanceKey)
     }
 
     /**
@@ -322,7 +352,10 @@ class NotificationManagerImpl @Inject constructor(
     private fun refreshAlarmSound() {
         val top = _notifications.value
             .filter { it.level == NotificationLevel.URGENT && it.soundRes != null && it.soundRes != 0 }
-            .maxByOrNull { it.date }
+            .filter { n ->
+                if (n.id.category != NotificationCategory.GLUCOSE) true else glucosePhoneChannelEnabled()
+            }
+            .maxWithOrNull(compareBy<AapsNotification> { it.id != NotificationId.GLUCOSE_ALARM_TEST }.thenBy { it.date })
         when {
             top == null                    ->
                 if (soundingKey != null) {
@@ -332,10 +365,67 @@ class NotificationManagerImpl @Inject constructor(
 
             top.instanceKey != soundingKey -> {
                 soundingKey = top.instanceKey
-                alarmSoundPlayer.play(top.soundRes!!, AlarmSoundPlayer.OWNER_INTERNAL)
+                alarmSoundPlayer.play(
+                    top.soundRes!!, AlarmSoundPlayer.OWNER_INTERNAL,
+                    alarmStream = if (top.id.category == NotificationCategory.GLUCOSE) true else null,
+                    rampVolume = if (top.id.category == NotificationCategory.GLUCOSE) false else null
+                )
             }
             // else: already playing the top alarm — leave the ramp running.
         }
+    }
+
+    private fun glucosePhoneChannelEnabled(): Boolean {
+        val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val channel = mgr.getNotificationChannel(GLUCOSE_PHONE_CHANNEL)
+        if (!mgr.areNotificationsEnabled() || channel == null || channel.importance == AndroidNotificationManager.IMPORTANCE_NONE) return false
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.P || channel.group == null || mgr.getNotificationChannelGroup(channel.group)?.isBlocked != true
+    }
+
+    private fun createGlucoseChannels(mgr: AndroidNotificationManager) {
+        mgr.createNotificationChannelGroup(android.app.NotificationChannelGroup("aaps_glucose_group", rh.gs(app.aaps.implementation.R.string.glucose_alarm_group)))
+        for (phone in listOf(false, true)) {
+            val channelId = if (phone) GLUCOSE_PHONE_CHANNEL else GLUCOSE_NOTIFICATION_CHANNEL
+            val attrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build()
+            mgr.createNotificationChannel(NotificationChannel(
+                channelId, rh.gs(if (phone) app.aaps.implementation.R.string.glucose_phone_channel else app.aaps.implementation.R.string.glucose_notification_channel),
+                AndroidNotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                group = "aaps_glucose_group"
+                if (phone) setSound(null, null) else setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), attrs)
+                enableVibration(true)
+            })
+        }
+    }
+
+    private fun raiseGlucoseNotification(n: AapsNotification) {
+        val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val phone = n.soundRes != null
+        val channelId = if (phone) GLUCOSE_PHONE_CHANNEL else GLUCOSE_NOTIFICATION_CHANNEL
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(iconsProvider.getNotificationIcon())
+            .setContentTitle(rh.gs(app.aaps.implementation.R.string.glucose_alarm_title))
+            .setContentText(n.text).setStyle(NotificationCompat.BigTextStyle().bigText(n.text))
+            .setCategory(NotificationCompat.CATEGORY_ALARM).setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOnlyAlertOnce(true).setOngoing(true).setAutoCancel(false)
+            .setContentIntent(notificationHolder.openAppIntent(context))
+            .setDeleteIntent(n.actions.lastOrNull()?.pendingIntent ?: deleteIntent(n.id.ordinal))
+        if (n.id == NotificationId.GLUCOSE_ALARM_TEST) builder.setTimeoutAfter(30_000L)
+        n.actions.forEachIndexed { index, action ->
+            val intent = Intent(NotificationManager.DISMISS_ACTION).setPackage(context.packageName)
+                .putExtra("alertID", n.id.ordinal).putExtra("actionIndex", index)
+            val pending = PendingIntent.getBroadcast(context, 200_000 + n.instanceKey * 10 + index, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            builder.addAction(0, rh.gs(action.buttonTextRes), action.pendingIntent ?: pending)
+        }
+        try { mgr.notify(n.instanceKey, builder.build()) }
+        catch (e: SecurityException) { aapsLogger.error(LTag.NOTIFICATION, "Glucose notification permission missing", e) }
+    }
+
+    companion object {
+        const val GLUCOSE_NOTIFICATION_CHANNEL = "aaps_glucose_notifications"
+        const val GLUCOSE_PHONE_CHANNEL = "aaps_glucose_phone_alarms"
     }
 
     private fun raiseSystemNotification(n: AapsNotification) {

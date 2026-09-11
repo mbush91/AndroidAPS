@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="glucose_alarm_title">Glucose alarm</string>
+    <string name="glucose_alarm_group">Glucose alarms</string>
+    <string name="glucose_low_reason">below threshold</string>
+    <string name="glucose_falling_reason">below threshold and falling</string>
+    <string name="glucose_rate_text"> · %1$.2f %2$s/min</string>
+    <string name="glucose_alarm_text">%1$s — %2$s%3$s</string>
+    <string name="glucose_snooze">Snooze</string>
+    <string name="glucose_notification_channel">Glucose notifications</string>
+    <string name="glucose_phone_channel">Glucose phone alarms</string>
+    <string name="glucose_test_text">TEST glucose alarm — stops automatically after 30 seconds</string>
+</resources>

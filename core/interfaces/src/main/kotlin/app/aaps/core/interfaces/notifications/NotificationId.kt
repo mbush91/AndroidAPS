@@ -177,7 +177,10 @@ enum class NotificationId(
     SCENE_ENDED(INFO, AUTOMATION, allowMultiple = true),
     SCENE_CHAINED(INFO, AUTOMATION, allowMultiple = true),
     SCENE_CHAIN_SKIPPED(NORMAL, AUTOMATION, allowMultiple = true),
-    SCENE_CHAIN_ERROR(IMPORTANT, AUTOMATION, allowMultiple = true);
+    SCENE_CHAIN_ERROR(IMPORTANT, AUTOMATION, allowMultiple = true),
+
+    GLUCOSE_ALARM(URGENT, NotificationCategory.GLUCOSE),
+    GLUCOSE_ALARM_TEST(URGENT, NotificationCategory.GLUCOSE);
 
     companion object {
 

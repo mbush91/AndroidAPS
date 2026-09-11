@@ -14,17 +14,18 @@ import app.aaps.core.interfaces.notifications.AlarmSoundPlayer.Companion.OWNER_I
  * persistent notification, a backgrounded internal alarm may be throttled on Android 12+; the
  * full-screen ([OWNER_FULLSCREEN]) path is unaffected because the activity is itself foreground.
  *
- * A single sound plays at a time. Each playback records the [OWNER_FULLSCREEN]/[OWNER_INTERNAL]
+ * A single sound plays at a time. Pending requests are kept per owner; a full-screen request
+ * takes precedence, and stopping it resumes the latest internal request. Each playback records the [OWNER_FULLSCREEN]/[OWNER_INTERNAL]
  * tag of whoever requested it; [stop] is owner-scoped so one driver tearing down (e.g. the
  * full-screen activity on rotation) cannot silence an alarm started by the other driver.
- * Volume ramp and DND/stream routing follow the user's `AlertIncreaseVolume` /
+ * Unless explicitly overridden per request, volume ramp and DND/stream routing follow the user's `AlertIncreaseVolume` /
  * `AlertOverrideDoNotDisturb` preferences.
  */
 interface AlarmSoundPlayer {
 
     /**
-     * Start looping playback of [soundRes], recording [ownerTag] as the current owner. Any previous
-     * playback (from either owner) is stopped first.
+     * Request looping playback of [soundRes] for [ownerTag]. A pending full-screen owner takes
+     * precedence; otherwise playback switches to this request.
      *
      * @param postedAtElapsedRealtime [android.os.SystemClock.elapsedRealtime] when an accompanying
      *   notification carrying a one-shot channel sound of the same resource was posted. When > 0,
@@ -32,9 +33,9 @@ interface AlarmSoundPlayer {
      *   auto-launch). Pass 0 (the default) when there is no accompanying channel sound — the
      *   duration probe is then skipped entirely.
      */
-    fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long = 0L)
+    fun play(@RawRes soundRes: Int, ownerTag: String, postedAtElapsedRealtime: Long = 0L, alarmStream: Boolean? = null, rampVolume: Boolean? = null)
 
-    /** Stop and release playback **only if** [ownerTag] is the current owner. No-op otherwise. */
+    /** Remove this owner's pending request. If it owns playback, stop it and resume the next owner. */
     fun stop(ownerTag: String)
 
     companion object {

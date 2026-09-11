@@ -25,6 +25,8 @@ enum class UnitDoubleKey(
     override val sync: SyncSpec? = null
 ) : UnitDoublePreferenceKey {
 
+    GlucoseLowThreshold("glucose_low_threshold", 70.0, 40, 250, R.string.glucose_threshold, dependency = BooleanKey.GlucoseLowEnabled),
+    GlucoseFallingThreshold("glucose_falling_threshold", 90.0, 40, 250, R.string.glucose_threshold, dependency = BooleanKey.GlucoseFallingEnabled),
     OverviewLowMark(key = "low_mark", defaultValue = 72.0, minMgdl = 25, maxMgdl = 160, titleResId = R.string.pref_title_low_mark, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     OverviewHighMark(key = "high_mark", defaultValue = 180.0, minMgdl = 90, maxMgdl = 250, titleResId = R.string.pref_title_high_mark, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     ApsLgsThreshold(
