@@ -30,6 +30,22 @@ class GlucoseAlarmEvaluatorTest {
         assertThat(E.reading(data, now)?.rate).isWithin(0.000001).of(-2.0)
     }
 
+    @Test fun `freshness uses source timestamp while trend keeps bucket timestamps`() {
+        val normalizedFutureBucket = listOf(
+            InMemoryGlucoseValue(timestamp = now + 35_000L, value = 60.0),
+            InMemoryGlucoseValue(timestamp = now - 265_000L, value = 75.0)
+        )
+        val current = E.reading(normalizedFutureBucket, now, sourceTimestamp = now - 5_000L)
+        assertThat(current).isNotNull()
+        assertThat(current?.timestamp).isEqualTo(now - 5_000L)
+
+        val staleSource = E.reading(listOf(sample(60.0)), now, sourceTimestamp = now - E.MAX_AGE_MS - 1L)
+        assertThat(staleSource).isNull()
+
+        val actualFutureSource = E.reading(listOf(sample(60.0)), now, sourceTimestamp = now + 1L)
+        assertThat(actualFutureSource).isNull()
+    }
+
     @Test fun `low uses calibrated then smoothed glucose consistently`() {
         val data = listOf(sample(100.0).copy(calibrated = 80.0, smoothed = 65.0))
         assertThat(E.reading(data, now)?.glucose).isEqualTo(65.0)
