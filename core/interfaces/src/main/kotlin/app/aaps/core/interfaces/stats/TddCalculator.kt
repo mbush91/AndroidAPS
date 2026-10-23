@@ -59,6 +59,12 @@ interface TddCalculator {
     suspend fun calculateInterval(startTime: Long, endTime: Long, allowMissingData: Boolean): TDD?
 
     /**
+     * Calculate long intervals using cached whole-day totals where available.
+     * Partial days and uncached days are calculated normally.
+     */
+    suspend fun calculateIntervalWithCachedDays(startTime: Long, endTime: Long, allowMissingData: Boolean): TDD?
+
+    /**
      * Calculate average TDD from list of daily TDDs
      * @param tdds list of precalculated data for days
      * @return [AverageTDD] or null if data is not available
