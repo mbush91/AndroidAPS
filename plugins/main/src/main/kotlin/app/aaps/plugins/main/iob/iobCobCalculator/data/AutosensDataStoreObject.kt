@@ -56,6 +56,13 @@ class AutosensDataStoreObject : AutosensDataStore {
     override fun getBucketedDataTableCopy(): MutableList<InMemoryGlucoseValue>? = synchronized(dataLock) { bucketedData?.toMutableList() }
     override fun getBgReadingsDataTableCopy(): List<GV> = synchronized(dataLock) { bgReadings.toMutableList() }
 
+    override fun holdsSameData(gv: GV): Boolean = synchronized(dataLock) {
+        val held = bgReadings.firstOrNull { it.id == gv.id } ?: return@synchronized false
+        // NS sync can update these metadata fields without changing a BG reading.
+        // Require all other fields to match, including glucose and validity.
+        held.copy(version = gv.version, dateCreated = gv.dateCreated, ids = gv.ids) == gv
+    }
+
     override fun reset() {
         synchronized(dataLock) { autosensDataTable = LongSparseArray() }
     }
