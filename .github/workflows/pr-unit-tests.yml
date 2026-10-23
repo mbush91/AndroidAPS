@@ -38,7 +38,9 @@ jobs:
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       # This branch compiles against Android API 37.
       - name: Install Android SDK platform
