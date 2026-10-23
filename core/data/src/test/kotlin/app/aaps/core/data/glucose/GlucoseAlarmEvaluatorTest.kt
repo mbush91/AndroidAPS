@@ -82,7 +82,7 @@ class GlucoseAlarmEvaluatorTest {
     @Test fun `dismiss survives stale data and reconstructed state until recovery`() {
         val active = E.evaluate(low, E.State(), reading(60.0), now).state
         val dismissed = E.acknowledge(active, active.episodeId)
-        val reconstructed = E.State(dismissed.active, dismissed.dismissed, dismissed.snoozeUntil, dismissed.episodeId)
+        val reconstructed = E.State(dismissed.active, dismissed.dismissed, dismissed.snoozeUntil, dismissed.episodeId, dismissed.lastReadingTimestamp)
         val stale = E.evaluate(low, reconstructed, null, now + 600_000)
         assertThat(stale.state).isEqualTo(reconstructed)
         assertThat(stale.alert).isFalse()
@@ -145,6 +145,36 @@ class GlucoseAlarmEvaluatorTest {
         )
         assertThat(value?.rate).isNull()
         assertThat(E.evaluate(falling, E.State(), value, now).alert).isFalse()
+    }
+
+    @Test fun `dismissed episode rearms after prolonged missing glucose even without observed recovery`() {
+        val first = E.evaluate(low, E.State(), reading(60.0), now).state
+        val dismissed = E.acknowledge(first, first.episodeId)
+        val outage = E.evaluate(low, dismissed, null, now + 8 * 60 * 60_000L)
+        assertThat(outage.alert).isFalse()
+        val later = now + 8 * 60 * 60_000L
+        val resumed = E.evaluate(low, outage.state, E.Reading(later, 55.0, null), later)
+        assertThat(resumed.alert).isTrue()
+        assertThat(resumed.state.episodeId).isGreaterThan(first.episodeId)
+        assertThat(E.acknowledge(resumed.state, first.episodeId)).isEqualTo(resumed.state)
+    }
+
+    @Test fun `brief sensor interruptions and process reconstruction retain dismissal`() {
+        val first = E.evaluate(low, E.State(), reading(60.0), now).state
+        val acknowledged = E.acknowledge(first, first.episodeId)
+        val restored = acknowledged.copy()
+        val resumedAt = now + E.MAX_EPISODE_DATA_GAP_MS
+        val resumed = E.evaluate(low, restored, E.Reading(resumedAt, 58.0, null), resumedAt)
+        assertThat(resumed.alert).isFalse()
+        assertThat(resumed.state.dismissed).isTrue()
+        assertThat(resumed.state.lastReadingTimestamp).isEqualTo(resumedAt)
+    }
+
+    @Test fun `legacy persisted episodes without continuity timestamps cannot suppress new lows`() {
+        val legacy = E.State(active = true, dismissed = true, episodeId = 123)
+        val resumed = E.evaluate(low, legacy, reading(58.0), now)
+        assertThat(resumed.alert).isTrue()
+        assertThat(resumed.state.episodeId).isGreaterThan(123)
     }
 
 }

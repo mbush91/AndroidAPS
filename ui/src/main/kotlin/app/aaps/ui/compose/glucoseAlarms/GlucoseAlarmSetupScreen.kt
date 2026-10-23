@@ -77,7 +77,9 @@ fun GlucoseAlarmSetupScreen(onBack: () -> Unit, viewModel: GlucoseAlarmSetupView
             "aaps_glucose_phone_alarms" to R.string.glucose_phone_settings
         )) {
             val blocked = remember(refresh, channel, enabled, groupBlocked) {
-                !enabled || groupBlocked || manager.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE
+                !enabled || groupBlocked || manager.getNotificationChannel(channel)?.importance == null ||
+                    (channel == "aaps_glucose_phone_alarms" && manager.getNotificationChannel(channel)!!.importance < NotificationManager.IMPORTANCE_LOW) ||
+                    (channel != "aaps_glucose_phone_alarms" && manager.getNotificationChannel(channel)!!.importance == NotificationManager.IMPORTANCE_NONE)
             }
             Button(onClick = { open(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, channel) }) { Text(stringResource(label)) }
             if (blocked) Text(stringResource(R.string.glucose_channel_blocked), color = MaterialTheme.colorScheme.error)

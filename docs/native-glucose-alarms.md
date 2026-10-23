@@ -17,7 +17,7 @@ Autosens intentionally does not create bucketed history until enough readings ex
 
 Readings older than seven minutes, genuinely future source timestamps, gap-filled latest values, non-finite values, and nonpositive values cannot start or sustain delivery. Positive sensor LOW values can trigger the plain-low rule even when a rate cannot be calculated. The falling rule requires real, ordered data with no gaps exceeding 7.5 minutes in the short-delta window. The extracted shared delta calculation preserves APS behavior, with its five-minute result divided by five for alarm evaluation.
 
-Episodes rearm after glucose reaches X + 5 mg/dL; falling episodes also rearm when the rate rises to at least −Y + 0.2 mg/dL/min. Unknown data stops delivery without treating missing data as recovery. The existing missed-reading alarm remains independently configurable.
+Episodes rearm after glucose reaches X + 5 mg/dL; falling episodes also rearm when the rate rises to at least −Y + 0.2 mg/dL/min. A new fresh reading after a gap longer than 30 minutes starts a new episode even without observed recovery, so a previously dismissed alarm cannot indefinitely suppress another low. The last observed CGM timestamp is persisted with each active episode. Unknown data stops delivery without treating missing data as recovery. The existing missed-reading alarm remains independently configurable.
 
 Dismiss silences matching episodes until recovery. Snooze uses each matching rule's configured duration and requires fresh qualifying data before delivery resumes. Recovery clears the snooze so a later low episode can alert immediately. Episode IDs reject stale actions. Operational state is persisted locally and excluded from settings sync/export. A second unsnoozed rule can still alert. Both matching rules share one displayed notification and one sound.
 
@@ -26,6 +26,8 @@ Dismiss silences matching episodes until recovery. Snooze uses each matching rul
 The separate `Glucose alarms` Android group contains `Glucose notifications` and `Glucose phone alarms`. Standard mode uses the notification channel sound. Phone mode uses a silent visual channel plus the existing looping audio player, explicitly selecting the alarm stream at its current system volume without the global notification-volume ramp. App-level blocking, child-channel blocking, or blocking the `Glucose alarms` channel group suppresses glucose phone audio so looping audio is never started without reachable notification actions. The setup screen treats the same group state as blocked. Explicit receiver actions work after process recreation.
 
 Alarm-stream playback is independent of ringer silence, but does not bypass a DND mode that disallows alarms. Channel bypass controls notification delivery and does not grant a MediaPlayer exemption. Setup links to channel, DND, and sound settings and shows notification/channel blocking and alarm volume. No full-screen permission is needed for glucose playback; v1 uses the notification shade/lock-screen actions and the in-app notification card.
+
+Glucose alarm evaluation is event-driven with one-shot timers for stale readings and snooze expiry, not a recurring 15-second wakeup when alarms are disabled. Android app, channel, and group blocking changes cause prompt reevaluation of current audio. A phone channel set to MIN importance is treated as unavailable for looping playback because Snooze/Dismiss would not be readily visible.
 
 Tests use real delivery paths and stop after 30 seconds. They do not replace an active audible internal alarm. The shared audio player retains a pending internal request while a full-screen alarm owns playback and resumes it when that owner stops. Global mute still dismisses all audible alarms.
 
@@ -44,8 +46,8 @@ Automated checks:
 Device acceptance checks before relying on this feature:
 
 - Both rule boundaries and both unit systems; loop suspended; Internet disconnected with local CGM reception.
-- Fresh startup or a long data gap with only one/two current readings; the plain-low rule should alert while the falling rule waits for usable history.
-- Locked screen, silent ringer, DND allowing alarms, DND blocking alarms, alarm volume zero, disabled notification channels, and the entire `Glucose alarms` notification group blocked.
+- Fresh startup or a long data gap with only one/two current readings; the plain-low rule should alert while the falling rule waits for usable history. Verify a dismissed episode rearms after a long sensor outage, but not after a short one.
+- Locked screen, silent ringer, DND allowing alarms, DND blocking alarms, alarm volume zero, disabled/minimized notification channels, and the entire `Glucose alarms` notification group blocked; change channel settings while audio is already playing.
 - Snooze/dismiss with duplicate readings, recovery, simultaneous rules, and process recreation.
 - A pump/internal alarm and a full-screen alarm overlapping a glucose alarm; confirm handoff and global mute.
 - No alarm from history browsing, imported old readings, genuinely future source timestamps, or synthetic gap fills.

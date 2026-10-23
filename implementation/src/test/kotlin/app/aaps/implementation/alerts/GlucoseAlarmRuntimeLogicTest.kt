@@ -61,4 +61,46 @@ class GlucoseAlarmRuntimeLogicTest {
         assertThat(glucosePhoneDeliveryAllowed(appEnabled = true, channelBlocked = true, groupBlocked = false)).isFalse()
         assertThat(glucosePhoneDeliveryAllowed(appEnabled = false, channelBlocked = false, groupBlocked = false)).isFalse()
     }
+    @Test
+    fun `smoothing failure retains calibrated singleton rather than reverting to raw`() = runTest {
+        val activePlugin = mock<ActivePlugin>()
+        val calibration = mock<Calibration>()
+        val smoothing = mock<Smoothing>()
+        whenever(activePlugin.activeCalibration).thenReturn(calibration)
+        whenever(activePlugin.activeSmoothing).thenReturn(smoothing)
+        whenever(calibration.calibrate(any(), any())).thenAnswer { invocation ->
+            invocation.getArgument<MutableList<InMemoryGlucoseValue>>(0).also { it.first().calibrated = 91.0 }
+        }
+        whenever(smoothing.smooth(any())).thenThrow(IllegalStateException("plugin failure"))
+        val data = prepareSingleGlucoseAlarmReading(glucose(1_000L, 55.0), activePlugin)
+        assertThat(data.single().recalculated).isEqualTo(91.0)
+        assertThat(GlucoseAlarmEvaluator.evaluate(
+            GlucoseAlarmEvaluator.Rule(true, 70.0), GlucoseAlarmEvaluator.State(),
+            GlucoseAlarmEvaluator.reading(data, 1_000L), 1_000L
+        ).alert).isFalse()
+    }
+
+    @Test
+    fun `glucose check deadlines are event driven and cover snooze and stale data`() {
+        val at = 10_000_000L
+        val current = GlucoseAlarmEvaluator.Reading(at, 55.0, null)
+        val active = GlucoseAlarmEvaluator.State(active = true, episodeId = at, lastReadingTimestamp = at)
+        assertThat(nextGlucoseAlarmCheck(at, current, GlucoseAlarmEvaluator.State(), GlucoseAlarmEvaluator.State(), false)).isNull()
+        assertThat(nextGlucoseAlarmCheck(at, current, active, GlucoseAlarmEvaluator.State(), true))
+            .isEqualTo(at + GlucoseAlarmEvaluator.MAX_AGE_MS + 1)
+        val snoozed = active.copy(snoozeUntil = at + 60_000L)
+        assertThat(nextGlucoseAlarmCheck(at, current, snoozed, GlucoseAlarmEvaluator.State(), false))
+            .isEqualTo(at + 60_000L)
+        assertThat(nextGlucoseAlarmCheck(at, null, snoozed, GlucoseAlarmEvaluator.State(), true)).isNull()
+    }
+
+    @Test
+    fun `phone channel must keep snooze controls discoverable`() {
+        assertThat(glucosePhoneChannelVisible(null)).isFalse()
+        assertThat(glucosePhoneChannelVisible(android.app.NotificationManager.IMPORTANCE_NONE)).isFalse()
+        assertThat(glucosePhoneChannelVisible(android.app.NotificationManager.IMPORTANCE_MIN)).isFalse()
+        assertThat(glucosePhoneChannelVisible(android.app.NotificationManager.IMPORTANCE_LOW)).isTrue()
+        assertThat(glucosePhoneChannelVisible(android.app.NotificationManager.IMPORTANCE_HIGH)).isTrue()
+    }
+
 }

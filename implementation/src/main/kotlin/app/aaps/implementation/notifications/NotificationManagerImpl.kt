@@ -28,6 +28,7 @@ import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.ui.IconsProvider
 import app.aaps.core.keys.BooleanKey
 import app.aaps.core.keys.interfaces.Preferences
+import app.aaps.implementation.alerts.glucosePhoneChannelVisible
 import app.aaps.implementation.androidNotification.AlarmNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,13 @@ class NotificationManagerImpl @Inject constructor(
         }
     }
 
+    private val channelChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            // Channel or group disabled while an alarm is already looping: stop audio immediately.
+            synchronized(this@NotificationManagerImpl) { refreshAlarmSound() }
+        }
+    }
+
     init {
         createNotificationChannel()
 
@@ -110,6 +118,18 @@ class NotificationManagerImpl @Inject constructor(
             context.registerReceiver(dismissReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         else
             context.registerReceiver(dismissReceiver, filter)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val channelFilter = IntentFilter().apply {
+                addAction(AndroidNotificationManager.ACTION_APP_BLOCK_STATE_CHANGED)
+                addAction(AndroidNotificationManager.ACTION_NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED)
+                addAction(AndroidNotificationManager.ACTION_NOTIFICATION_CHANNEL_GROUP_BLOCK_STATE_CHANGED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                context.registerReceiver(channelChangeReceiver, channelFilter, Context.RECEIVER_NOT_EXPORTED)
+            else
+                context.registerReceiver(channelChangeReceiver, channelFilter)
+        }
     }
 
     @Synchronized
@@ -378,7 +398,7 @@ class NotificationManagerImpl @Inject constructor(
     private fun glucosePhoneChannelEnabled(): Boolean {
         val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
         val channel = mgr.getNotificationChannel(GLUCOSE_PHONE_CHANNEL)
-        if (!mgr.areNotificationsEnabled() || channel == null || channel.importance == AndroidNotificationManager.IMPORTANCE_NONE) return false
+        if (!mgr.areNotificationsEnabled() || !glucosePhoneChannelVisible(channel?.importance)) return false
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.P || channel.group == null || mgr.getNotificationChannelGroup(channel.group)?.isBlocked != true
     }
 

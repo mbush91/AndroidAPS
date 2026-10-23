@@ -8,9 +8,11 @@ object GlucoseAlarmEvaluator {
     const val MAX_AGE_MS = 7 * 60_000L
     private const val MAX_GAP_MS = 450_000L
     const val RECOVERY_MARGIN = 5.0
+    /** Missing CGM data must not make a dismissal suppress a separate low hours later. */
+    const val MAX_EPISODE_DATA_GAP_MS = 30 * 60_000L
 
     data class Rule(val enabled: Boolean, val threshold: Double, val fallRate: Double? = null)
-    data class State(val active: Boolean = false, val dismissed: Boolean = false, val snoozeUntil: Long = 0, val episodeId: Long = 0)
+    data class State(val active: Boolean = false, val dismissed: Boolean = false, val snoozeUntil: Long = 0, val episodeId: Long = 0, val lastReadingTimestamp: Long = 0)
     data class Reading(val timestamp: Long, val glucose: Double, val rate: Double?)
     data class Result(val state: State, val alert: Boolean)
 
@@ -42,14 +44,24 @@ object GlucoseAlarmEvaluator {
         if (!rule.enabled) return Result(State(episodeId = previous.episodeId), false)
         if (!rule.threshold.isFinite() || rule.threshold !in 40.0..250.0 ||
             rule.fallRate?.let { !it.isFinite() || it <= 0 } == true) return Result(previous, false)
-        // Unknown data silences delivery without falsely declaring recovery or forgetting dismissal.
+        // A short outage preserves acknowledgement; a long outage starts a new episode when
+        // fresh glucose returns, even if the prior low was never observed to recover.
         if (reading == null) return Result(previous, false)
+        val continuous = previous.lastReadingTimestamp > 0L &&
+            reading.timestamp >= previous.lastReadingTimestamp &&
+            reading.timestamp - previous.lastReadingTimestamp <= MAX_EPISODE_DATA_GAP_MS
+        val prior = if (previous.active && !continuous) State(episodeId = previous.episodeId) else previous
         val recovered = reading.glucose >= rule.threshold + RECOVERY_MARGIN ||
             (rule.fallRate != null && reading.rate?.let { it >= -rule.fallRate + 0.2 } == true)
-        if (recovered) return Result(State(episodeId = previous.episodeId), false)
+        if (recovered) return Result(State(episodeId = prior.episodeId), false)
         val matches = reading.glucose < rule.threshold &&
             (rule.fallRate == null || reading.rate?.let { it <= -rule.fallRate } == true)
-        val state = previous.copy(active = previous.active || matches, episodeId = if (!previous.active && matches) maxOf(now, previous.episodeId + 1) else previous.episodeId)
+        val active = prior.active || matches
+        val state = prior.copy(
+            active = active,
+            episodeId = if (!prior.active && matches) maxOf(now, prior.episodeId + 1) else prior.episodeId,
+            lastReadingTimestamp = if (active) reading.timestamp else 0L
+        )
         val knownRate = rule.fallRate == null || reading.rate != null
         return Result(state, state.active && knownRate && !state.dismissed && now >= state.snoozeUntil)
     }

@@ -29,10 +29,10 @@ import app.aaps.implementation.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,6 +45,25 @@ internal fun latestUsableGlucoseSource(data: List<GV>): GV? =
 internal fun glucosePhoneDeliveryAllowed(appEnabled: Boolean, channelBlocked: Boolean, groupBlocked: Boolean): Boolean =
     appEnabled && !channelBlocked && !groupBlocked
 
+/** IMPORTANCE_MIN hides actionable alarm notifications deep in the shade. */
+internal fun glucosePhoneChannelVisible(importance: Int?): Boolean =
+    importance != null && importance >= AndroidNotificationManager.IMPORTANCE_LOW
+
+/** Only schedule deadlines that can change the displayed alarm without another CGM event. */
+internal fun nextGlucoseAlarmCheck(
+    now: Long,
+    reading: Evaluator.Reading?,
+    low: Evaluator.State,
+    falling: Evaluator.State,
+    displayed: Boolean
+): Long? {
+    if (reading == null) return null
+    val staleAt = reading.timestamp + Evaluator.MAX_AGE_MS + 1
+    val snoozed = listOf(low, falling).filter { it.active && !it.dismissed && it.snoozeUntil > now }
+    if (!displayed && snoozed.isEmpty()) return null
+    return (listOf(staleAt) + snoozed.map { it.snoozeUntil }).filter { it > now }.minOrNull()
+}
+
 internal suspend fun prepareSingleGlucoseAlarmReading(source: GV, activePlugin: ActivePlugin): List<InMemoryGlucoseValue> {
     val raw = mutableListOf(
         InMemoryGlucoseValue(
@@ -55,7 +74,12 @@ internal suspend fun prepareSingleGlucoseAlarmReading(source: GV, activePlugin: 
         )
     )
     val calibrated = activePlugin.activeCalibration.calibrate(raw, CalibrationContext.NONE)
-    val smoothed = activePlugin.activeSmoothing.smooth(calibrated)
+    val smoothed = try {
+        activePlugin.activeSmoothing.smooth(calibrated)
+    } catch (_: Exception) {
+        // A smoothing failure must not discard a successfully calibrated low reading.
+        calibrated
+    }
     return (smoothed.ifEmpty { calibrated }).map { it.copy() }
 }
 
@@ -84,6 +108,7 @@ class GlucoseAlarmRuntime @Inject constructor(
     private var falling = load("falling")
     private var displayed: Pair<String, Boolean>? = null
     private var testUntil = 0L
+    private var deadlineJob: Job? = null
 
     @Synchronized
     override fun start() {
@@ -106,11 +131,11 @@ class GlucoseAlarmRuntime @Inject constructor(
                 preferences.observe(StringKey.GeneralUnits).map {}
             ).collect { commands.send { evaluate() } }
         }
-        scope.launch {
-            while (isActive) {
-                delay(15_000)
-                commands.send { evaluate() }
-            }
+        // Clear any orphaned Android notification left by an earlier process, once on startup.
+        // There is no fixed polling loop; fresh glucose, preferences and alarm deadlines drive checks.
+        commands.trySend {
+            notifications.dismiss(NotificationId.GLUCOSE_ALARM, userInitiated = false)
+            evaluate()
         }
     }
 
@@ -174,8 +199,9 @@ class GlucoseAlarmRuntime @Inject constructor(
             persist()
         }
         if (reading == null || (!lowResult.alert && !fallResult.alert)) {
-            notifications.dismiss(NotificationId.GLUCOSE_ALARM, userInitiated = false)
+            if (displayed != null) notifications.dismiss(NotificationId.GLUCOSE_ALARM, userInitiated = false)
             displayed = null
+            scheduleNextCheck(now, reading)
             return
         }
         clearTest() // a real alarm always takes precedence over a test
@@ -188,7 +214,10 @@ class GlucoseAlarmRuntime @Inject constructor(
         val phoneRequested = (lowResult.alert && preferences.get(BooleanKey.GlucoseLowPhoneAlarm)) ||
             (fallResult.alert && preferences.get(BooleanKey.GlucoseFallingPhoneAlarm))
         val phone = phoneRequested && phoneAlarmDeliveryAllowed()
-        if (displayed == (text to phone)) return
+        if (displayed == (text to phone)) {
+            scheduleNextCheck(now, reading)
+            return
+        }
         val lowEpisode = low.episodeId.takeIf { lowResult.alert }
         val fallEpisode = falling.episodeId.takeIf { fallResult.alert }
         val dismiss = { acknowledge(lowEpisode, fallEpisode, snooze = false) }
@@ -201,12 +230,23 @@ class GlucoseAlarmRuntime @Inject constructor(
             onDismiss = dismiss
         )
         displayed = text to phone
+        scheduleNextCheck(now, reading)
+    }
+
+    private fun scheduleNextCheck(now: Long, reading: Evaluator.Reading?) {
+        deadlineJob?.cancel()
+        deadlineJob = null
+        val deadline = nextGlucoseAlarmCheck(now, reading, low, falling, displayed != null) ?: return
+        deadlineJob = scope.launch {
+            delay((deadline - now).coerceAtLeast(1L))
+            commands.send { evaluate() }
+        }
     }
 
     private fun phoneAlarmDeliveryAllowed(): Boolean {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
         val channel = manager.getNotificationChannel(GLUCOSE_PHONE_CHANNEL)
-        val channelBlocked = channel == null || channel.importance == AndroidNotificationManager.IMPORTANCE_NONE
+        val channelBlocked = !glucosePhoneChannelVisible(channel?.importance)
         val groupBlocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             channel?.group?.let { manager.getNotificationChannelGroup(it)?.isBlocked } == true
         } else false
@@ -263,7 +303,8 @@ class GlucoseAlarmRuntime @Inject constructor(
 
     private fun load(key: String) = Evaluator.State(
         storage.getBoolean("${key}_active", false), storage.getBoolean("${key}_dismissed", false),
-        storage.getLong("${key}_snooze", 0), storage.getLong("${key}_episode", 0)
+        storage.getLong("${key}_snooze", 0), storage.getLong("${key}_episode", 0),
+        storage.getLong("${key}_last_reading", 0)
     )
 
     private fun persist() {
@@ -271,6 +312,7 @@ class GlucoseAlarmRuntime @Inject constructor(
         for ((key, state) in listOf("low" to low, "falling" to falling)) {
             editor.putBoolean("${key}_active", state.active).putBoolean("${key}_dismissed", state.dismissed)
                 .putLong("${key}_snooze", state.snoozeUntil).putLong("${key}_episode", state.episodeId)
+                .putLong("${key}_last_reading", state.lastReadingTimestamp)
         }
         // On the application worker: finish persistence before accepting another alarm action.
         if (!editor.commit()) logger.error(LTag.NOTIFICATION, "Could not persist glucose alarm snooze state")
