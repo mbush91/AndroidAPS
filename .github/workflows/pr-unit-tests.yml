@@ -43,8 +43,9 @@ jobs:
           packages: 'platform-tools'
 
       # This branch compiles against Android API 37.
-      - name: Install Android SDK platform
-        run: sdkmanager --install "platforms;android-37"
+      # Android 37 is published as a minor-versioned SDK (37.0), not android-37.
+      - name: Install Android SDK platform and build tools
+        run: sdkmanager --channel=3 --install "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
