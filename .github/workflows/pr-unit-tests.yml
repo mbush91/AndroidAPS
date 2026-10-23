@@ -50,10 +50,25 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
+      # The sync and Eros test suites have independent classes that change
+      # process-global state / launch background coroutines. A separate JVM
+      # per class keeps those tests isolated; no test is excluded or skipped.
+      - name: Configure test JVM isolation
+        run: |
+          cat > "$RUNNER_TEMP/pr-unit-test-isolation.gradle" <<'GRADLE'
+          gradle.beforeProject { project ->
+              project.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+                  if (project.path == ':plugins:sync' || project.path == ':pump:omnipod:eros') {
+                      forkEvery = 1
+                  }
+              }
+          }
+          GRADLE
+
       - name: Run Full Debug unit tests
         run: |
           chmod +x ./gradlew
-          ./gradlew testFullDebugUnitTest \
+          ./gradlew --init-script "$RUNNER_TEMP/pr-unit-test-isolation.gradle" testFullDebugUnitTest \
             --continue \
             --stacktrace \
             --max-workers=2 \
