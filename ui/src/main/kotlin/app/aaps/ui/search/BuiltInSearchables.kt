@@ -174,6 +174,22 @@ class BuiltInSearchables @Inject constructor(
         key = "alerts",
         titleResId = app.aaps.core.ui.R.string.localalertsettings_title,
         items = listOf(
+            PreferenceSubScreenDef(
+                key = "glucose_alarms",
+                titleResId = app.aaps.core.keys.R.string.glucose_alarms,
+                items = listOf(
+                    app.aaps.ui.compose.glucoseAlarms.GlucoseAlarmSetupKey,
+                    BooleanKey.GlucoseLowEnabled,
+                    app.aaps.core.keys.UnitDoubleKey.GlucoseLowThreshold,
+                    BooleanKey.GlucoseLowPhoneAlarm,
+                    IntKey.GlucoseLowSnooze,
+                    BooleanKey.GlucoseFallingEnabled,
+                    app.aaps.core.keys.UnitDoubleKey.GlucoseFallingThreshold,
+                    DoubleKey.GlucoseFallRate,
+                    BooleanKey.GlucoseFallingPhoneAlarm,
+                    IntKey.GlucoseFallingSnooze
+                )
+            ),
             BooleanKey.AlertMissedBgReading,
             IntKey.AlertsStaleDataThreshold,
             BooleanKey.AlertPumpUnreachable,

@@ -33,6 +33,8 @@ enum class IntKey(
     override val sync: SyncSpec? = null
 ) : IntPreferenceKey {
 
+    GlucoseLowSnooze("glucose_low_snooze", 15, 1, 120, R.string.glucose_snooze_duration, dependency = BooleanKey.GlucoseLowEnabled, unitType = UnitType.MIN),
+    GlucoseFallingSnooze("glucose_falling_snooze", 15, 1, 120, R.string.glucose_snooze_duration, dependency = BooleanKey.GlucoseFallingEnabled, unitType = UnitType.MIN),
     OverviewCarbsButtonIncrement1(
         key = "carbs_button_increment_1",
         defaultValue = 5,

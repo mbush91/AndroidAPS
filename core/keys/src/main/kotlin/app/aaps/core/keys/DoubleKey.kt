@@ -27,6 +27,7 @@ enum class DoubleKey(
     override val sync: SyncSpec? = null
 ) : DoublePreferenceKey {
 
+    GlucoseFallRate("glucose_fall_rate", 2.0, 0.1, 10.0, R.string.glucose_fall_rate, R.string.glucose_fall_rate_summary, dependency = BooleanKey.GlucoseFallingEnabled, unitType = UnitType.GLUCOSE_RATE),
     OverviewInsulinButtonIncrement1(
         key = "insulin_button_increment_1",
         defaultValue = 0.5,

@@ -124,11 +124,13 @@ class ImplementationModule {
     @InstallIn(SingletonComponent::class)
     interface Bindings {
 
+        @ContributesAndroidInjector fun contributesGlucoseAlarmActionReceiver(): app.aaps.implementation.alerts.GlucoseAlarmActionReceiver
         @ContributesAndroidInjector fun contributesNetworkChangeReceiver(): NetworkChangeReceiver
         @ContributesAndroidInjector fun contributesBTReceiver(): BTReceiver
         @ContributesAndroidInjector fun contributesChargingStateReceiver(): ChargingStateReceiver
         @ContributesAndroidInjector fun contributesTimeDateOrTZChangeReceiver(): TimeDateOrTZChangeReceiver
 
+        @Binds fun bindGlucoseAlarms(impl: app.aaps.implementation.alerts.GlucoseAlarmRuntime): app.aaps.core.interfaces.alerts.GlucoseAlarms
         @Binds fun bindPreferences(preferencesImpl: PreferencesImpl): Preferences
         @Binds fun bindVisibilityContext(impl: VisibilityContextImpl): VisibilityContext
         @Binds fun bindFabricPrivacy(fabricPrivacyImpl: FabricPrivacyImpl): FabricPrivacy
