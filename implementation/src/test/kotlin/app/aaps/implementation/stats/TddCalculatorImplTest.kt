@@ -15,6 +15,7 @@ import app.aaps.shared.tests.TestBase
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mock
@@ -379,4 +380,44 @@ class TddCalculatorImplTest : TestBase() {
         assertThat(result?.data?.basalAmount).isWithin(0.0001).of(20.0015)
         assertThat(result?.data?.bolusAmount).isWithin(0.0001).of(10.0015)
     }
+
+    @Test
+    fun `cached full day avoids repeated basal database queries`() = runBlocking {
+        val nextMidnight = MidnightTime.calc(midnight + T.hours(27).msecs())
+        val cached = TDD(timestamp = midnight, basalAmount = 20.0, bolusAmount = 10.0,
+            totalAmount = 30.0, carbs = 120.0, carbInsulin = 12.0)
+        whenever(persistenceLayer.getCalculatedTotalDailyDose(midnight)).thenReturn(cached)
+
+        val result = tddCalculator.calculateIntervalWithCachedDays(midnight, nextMidnight, false)
+
+        assertThat(result).isNotNull()
+        assertThat(result?.totalAmount).isEqualTo(30.0)
+        assertThat(result?.carbs).isEqualTo(120.0)
+        org.mockito.kotlin.verify(persistenceLayer, org.mockito.kotlin.never())
+            .getBolusesFromTimeToTime(org.mockito.kotlin.any(), org.mockito.kotlin.any(), org.mockito.kotlin.any())
+    }
+
+    @Test
+    fun `cached adjacent full days combine all TDD components`() = runBlocking {
+        val day2 = MidnightTime.calc(midnight + T.hours(27).msecs())
+        val day3 = MidnightTime.calc(day2 + T.hours(27).msecs())
+        whenever(persistenceLayer.getCalculatedTotalDailyDose(midnight)).thenReturn(
+            TDD(timestamp = midnight, basalAmount = 20.0, bolusAmount = 10.0,
+                totalAmount = 30.0, carbs = 100.0, carbInsulin = 5.0)
+        )
+        whenever(persistenceLayer.getCalculatedTotalDailyDose(day2)).thenReturn(
+            TDD(timestamp = day2, basalAmount = 22.0, bolusAmount = 8.0,
+                totalAmount = 30.0, carbs = 150.0, carbInsulin = 7.0)
+        )
+
+        val result = tddCalculator.calculateIntervalWithCachedDays(midnight, day3, false)
+
+        assertThat(result).isNotNull()
+        assertThat(result?.basalAmount).isEqualTo(42.0)
+        assertThat(result?.bolusAmount).isEqualTo(18.0)
+        assertThat(result?.totalAmount).isEqualTo(60.0)
+        assertThat(result?.carbs).isEqualTo(250.0)
+        assertThat(result?.carbInsulin).isEqualTo(12.0)
+    }
+
 }

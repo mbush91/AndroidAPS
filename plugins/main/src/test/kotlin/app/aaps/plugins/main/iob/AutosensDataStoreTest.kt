@@ -2,6 +2,7 @@ package app.aaps.plugins.main.iob
 
 import androidx.collection.LongSparseArray
 import app.aaps.core.data.model.GV
+import app.aaps.core.data.model.IDs
 import app.aaps.core.data.model.SourceSensor
 import app.aaps.core.data.model.TrendArrow
 import app.aaps.core.data.time.T
@@ -1534,4 +1535,33 @@ class AutosensDataStoreTest : TestBaseWithProfile() {
         ads.autosensDataTable.append(now - T.mins(20).msecs(), AutosensDataObject(aapsLogger, preferences, dateUtil).apply { time = now - T.mins(20).msecs() })
         assertThat(ads.getLastAutosensData("test", aapsLogger, dateUtil)?.time).isEqualTo(now - 1)
     }
+
+    @Test
+    fun `holdsSameData ignores Nightscout metadata-only writes`() {
+        val original = GV(
+            id = 42L, version = 1, dateCreated = 100L,
+            timestamp = T.mins(20).msecs(), raw = null, value = 100.0,
+            trendArrow = TrendArrow.FLAT, noise = null, sourceSensor = SourceSensor.UNKNOWN
+        )
+        autosensDataStore.bgReadings = listOf(original)
+        val synced = original.copy(
+            version = 2, dateCreated = 200L, ids = IDs(nightscoutId = "new-ns-id")
+        )
+
+        assertThat(autosensDataStore.holdsSameData(synced)).isTrue()
+        assertThat(autosensDataStore.holdsSameData(synced.copy(value = 105.0))).isFalse()
+        assertThat(autosensDataStore.holdsSameData(synced.copy(isValid = false))).isFalse()
+        assertThat(autosensDataStore.holdsSameData(synced.copy(id = 43L))).isFalse()
+    }
+
+    @Test
+    fun `holdsSameData requires prior BG load`() {
+        autosensDataStore.bgReadings = emptyList()
+        val incoming = GV(
+            id = 5L, timestamp = T.mins(5).msecs(), raw = null, value = 90.0,
+            trendArrow = TrendArrow.FLAT, noise = null, sourceSensor = SourceSensor.UNKNOWN
+        )
+        assertThat(autosensDataStore.holdsSameData(incoming)).isFalse()
+    }
+
 }
