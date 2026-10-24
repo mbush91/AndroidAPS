@@ -36,6 +36,12 @@ interface AutosensDataStore {
     fun getBucketedDataTableCopy(): MutableList<InMemoryGlucoseValue>?
     fun createBucketedData(aapsLogger: AAPSLogger, dateUtil: DateUtil)
     fun slowAbsorptionPercentage(timeInMinutes: Int): Double
+    /**
+     * Only true when the last glucose load already contains identical BG data.
+     * Nightscout metadata-only updates need not trigger another calculation.
+     * False is the safe default for unloaded/new/modified glucose values.
+     */
+    fun holdsSameData(gv: GV): Boolean
     fun newHistoryData(time: Long, aapsLogger: AAPSLogger, dateUtil: DateUtil)
     fun roundUpTime(time: Long): Long
     fun reset()

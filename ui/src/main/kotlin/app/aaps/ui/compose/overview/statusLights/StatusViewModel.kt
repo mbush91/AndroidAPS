@@ -31,6 +31,7 @@ import app.aaps.core.ui.compose.icons.IcPumpCartridge
 import app.aaps.core.ui.compose.pump.tickerFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,8 +82,12 @@ class StatusViewModel @Inject constructor(
             .onEach { refreshState() }.launchIn(viewModelScope)
     }
 
+    // A pump status read can emit many updates; keep only the newest refresh.
+    private var refreshJob: Job? = null
+
     fun refreshState() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             val pump = activePlugin.activePump
             val pumpDescription = pump.pumpDescription
             val isInitialized = pump.isInitialized()
@@ -115,12 +120,10 @@ class StatusViewModel @Inject constructor(
                 )
             }
 
-            // Calculate cannula usage in background (expensive operation)
-            viewModelScope.launch {
-                val cannulaStatusWithUsage = buildCannulaStatus(isPatchPump, includeTddCalculation = true)
-                _uiState.update { state ->
-                    state.copy(cannulaStatus = cannulaStatusWithUsage)
-                }
+            // Run this inside refreshJob so subsequent refreshes cancel the expensive work.
+            val cannulaStatusWithUsage = buildCannulaStatus(isPatchPump, includeTddCalculation = true)
+            _uiState.update { state ->
+                state.copy(cannulaStatus = cannulaStatusWithUsage)
             }
         }
     }
@@ -191,7 +194,7 @@ class StatusViewModel @Inject constructor(
         // Calculate usage since last cannula change (expensive - can be deferred)
         val usage = if (includeTddCalculation && event != null) {
             withContext(Dispatchers.IO) {
-                tddCalculator.calculateInterval(event.timestamp, dateUtil.now(), allowMissingData = false)?.totalAmount ?: 0.0
+                tddCalculator.calculateIntervalWithCachedDays(event.timestamp, dateUtil.now(), allowMissingData = false)?.totalAmount ?: 0.0
             }
         } else 0.0
 
