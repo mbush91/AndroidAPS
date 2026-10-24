@@ -118,7 +118,7 @@ private fun NotificationItem(
                     ActionButton(textRes = action.buttonTextRes) {
                         action.action()
                         onActionClick()
-                        onDismiss()
+                        if (notification.id.category != NotificationCategory.GLUCOSE) onDismiss()
                     }
                 }
             } else {
@@ -151,7 +151,7 @@ fun NotificationLevel.toColor(): Color = when (this) {
 fun NotificationCategory.toIcon(): ImageVector = when (this) {
     NotificationCategory.PUMP       -> IcPluginVirtualPump
     NotificationCategory.PROFILE    -> IcProfile
-    NotificationCategory.CGM        -> IcCgmInsert
+    NotificationCategory.CGM, NotificationCategory.GLUCOSE        -> IcCgmInsert
     NotificationCategory.LOOP       -> IcLoopClosed
     NotificationCategory.SYNC       -> IcPluginNsClient
     NotificationCategory.SYSTEM     -> IcPluginMaintenance

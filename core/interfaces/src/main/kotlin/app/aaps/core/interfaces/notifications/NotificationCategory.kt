@@ -8,5 +8,6 @@ enum class NotificationCategory {
     SYNC,
     SYSTEM,
     AUTOMATION,
-    GENERAL
+    GENERAL,
+    GLUCOSE
 }
