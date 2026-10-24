@@ -172,6 +172,35 @@ class TddCalculatorImpl @Inject constructor(
         return null
     }
 
+    /**
+     * Use saved daily totals for complete, ordinary 24-hour calendar days.
+     * Recalculate partial or uncached days with the existing 5-minute logic.
+     * DST-shortened or DST-extended days must not use the fixed-24-hour cache.
+     */
+    override suspend fun calculateIntervalWithCachedDays(startTime: Long, endTime: Long, allowMissingData: Boolean): TDD? {
+        if (startTime >= endTime) return calculateInterval(startTime, endTime, allowMissingData)
+        val result = TDD(timestamp = startTime - startTime % (5 * 60 * 1000))
+        var hasData = false
+        var segmentStart = startTime
+        while (segmentStart < endTime) {
+            val midnight = MidnightTime.calc(segmentStart)
+            val nextMidnight = MidnightTime.calc(midnight + T.hours(27).msecs())
+            val segmentEnd = minOf(nextMidnight, endTime)
+            val wholeDay = segmentStart == midnight && segmentEnd == nextMidnight &&
+                nextMidnight - midnight == T.hours(24).msecs()
+            val cached = if (wholeDay) persistenceLayer.getCalculatedTotalDailyDose(midnight) else null
+            val segment = cached ?: calculateInterval(segmentStart, segmentEnd, allowMissingData) ?: return null
+            result.basalAmount += segment.basalAmount
+            result.bolusAmount += segment.bolusAmount
+            result.totalAmount += segment.totalAmount
+            result.carbs += segment.carbs
+            result.carbInsulin += segment.carbInsulin
+            hasData = true
+            segmentStart = segmentEnd
+        }
+        return if (hasData) result else null
+    }
+
     override fun averageTDD(tdds: LongSparseArray<TDD>?): AverageTDD? {
         val totalTdd = TDD(timestamp = dateUtil.now())
         tdds ?: return null

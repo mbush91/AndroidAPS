@@ -160,7 +160,10 @@ class IobCobCalculatorPlugin @Inject constructor(
         // GlucoseValue changes → reload BG data + trigger loop
         persistenceLayer.observeChanges(GV::class.java)
             .onEach { gvList ->
-                gvList.minOfOrNull { it.timestamp }?.let { timestamp ->
+                // Filter before choosing the oldest timestamp: a batch may include
+                // both a new glucose reading and an NS-id update to an older one.
+                val changed = gvList.filterNot { ads.holdsSameData(it) }
+                changed.minOfOrNull { it.timestamp }?.let { timestamp ->
                     scheduleHistoryDataChange(timestamp, reloadBgData = true, triggeredByNewBG = true)
                 }
             }.launchIn(newScope)
