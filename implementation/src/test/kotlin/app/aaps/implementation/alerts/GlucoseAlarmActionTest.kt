@@ -38,6 +38,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import org.robolectric.RobolectricTestRunner
@@ -66,6 +67,7 @@ class GlucoseAlarmActionTest {
         try {
             val fixture = createFixture(scope)
             fixture.triggerLow()
+            runCurrent()
 
             // These action callbacks are created alongside real Android PendingIntents, and
             // NotificationManagerImpl actually posts an Android notification via Robolectric.
@@ -111,6 +113,7 @@ class GlucoseAlarmActionTest {
                 soundRes = app.aaps.core.ui.R.raw.urgentalarm
             )
             fixture.triggerLow()
+            runCurrent()
             val glucose = fixture.notifications.notifications.value.single { it.id == NotificationId.GLUCOSE_ALARM }
             glucose.actions[1].action()
             runCurrent()
@@ -121,7 +124,7 @@ class GlucoseAlarmActionTest {
                 .doesNotContain(NotificationId.GLUCOSE_ALARM.ordinal)
             // Audio is handed back to the surviving pump alarm, not globally muted.
             verify(fixture.soundPlayer, never()).stop(AlarmSoundPlayer.OWNER_INTERNAL)
-            verify(fixture.soundPlayer).play(
+            verify(fixture.soundPlayer, times(2)).play(
                 eq(app.aaps.core.ui.R.raw.urgentalarm), eq(AlarmSoundPlayer.OWNER_INTERNAL),
                 eq(0L), eq(null), eq(null)
             )
