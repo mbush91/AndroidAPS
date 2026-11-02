@@ -34,6 +34,9 @@ dependencies {
     testImplementation(project(":pump:virtual"))
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.work.testing)
+    // Android notification PendingIntent and NotificationManager regression tests.
+    testImplementation(libs.org.robolectric)
+    testRuntimeOnly(libs.org.junit.vintage.engine)
 
     api(libs.androidx.datastore.preferences)
     // Protection
