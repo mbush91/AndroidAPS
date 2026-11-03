@@ -260,7 +260,9 @@ class GlucoseAlarmRuntime @Inject constructor(
                 low = Evaluator.acknowledge(low, lowEpisode, if (snooze) now + preferences.get(IntKey.GlucoseLowSnooze).coerceIn(1, 120) * 60_000L else null)
                 falling = Evaluator.acknowledge(falling, fallEpisode, if (snooze) now + preferences.get(IntKey.GlucoseFallingSnooze).coerceIn(1, 120) * 60_000L else null)
                 persist()
-                displayed = null
+                // Keep the currently displayed notification tracked until evaluate() can cancel it.
+                // Clearing displayed here skips notifications.dismiss() when the acknowledged
+                // rule is no longer alerting, leaving both the notification and phone audio active.
                 evaluate()
             } finally { onComplete() }
         }
